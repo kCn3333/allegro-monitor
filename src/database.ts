@@ -36,6 +36,13 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
+      CREATE TABLE IF NOT EXISTS extension_clients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        last_seen_at TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -45,10 +52,23 @@ export class Store {
       last_error lastError, created_at createdAt FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
   }
 
-  createMonitor(name: string, url: string, intervalMinutes: number): void {
+  createMonitor(name: string, url: string, intervalMinutes: number): number {
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO monitors(name,url,interval_minutes,next_check_at,created_at) VALUES(?,?,?,?,?)")
+    const result = this.db.prepare("INSERT INTO monitors(name,url,interval_minutes,next_check_at,created_at) VALUES(?,?,?,?,?)")
       .run(name, url, intervalMinutes, now, now);
+    return Number(result.lastInsertRowid);
+  }
+
+  getMonitor(id: number): Monitor | undefined {
+    return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
+      enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
+      last_error lastError, created_at createdAt FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
+  }
+
+  findMonitorByUrl(url: string): Monitor | undefined {
+    return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
+      enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
+      last_error lastError, created_at createdAt FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
   }
 
   deleteMonitor(id: number): void {
@@ -94,6 +114,17 @@ export class Store {
     const message = error instanceof Error ? error.message : String(error);
     this.db.prepare("UPDATE monitors SET last_checked_at=?,next_check_at=?,last_error=? WHERE id=?")
       .run(now.toISOString(), next, message.slice(0, 1000), monitor.id);
+  }
+
+  addExtensionClient(name: string, tokenHash: string): void {
+    this.db.prepare("INSERT INTO extension_clients(name,token_hash,created_at) VALUES(?,?,?)")
+      .run(name.slice(0, 100), tokenHash, new Date().toISOString());
+  }
+
+  touchExtensionClient(tokenHash: string): boolean {
+    const result = this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE token_hash=?")
+      .run(new Date().toISOString(), tokenHash);
+    return result.changes > 0;
   }
 
   recentListings(limit = 50): Array<Listing & { monitorName: string; firstSeenAt: string }> {

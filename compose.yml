@@ -7,33 +7,24 @@ services:
       PORT: ${APP_PORT:-3000}
       HOST: 0.0.0.0
       DATABASE_PATH: /app/data/monitor.sqlite
-      CHECK_TICK_SECONDS: ${CHECK_TICK_SECONDS:-30}
-      BROWSER_HEADLESS: "false"
-      BROWSER_PROFILE_PATH: /app/browser-profile
-      DIAGNOSTICS_PATH: /app/data/diagnostics
+      EXTENSION_ZIP_PATH: /app/extension.zip
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?Set TELEGRAM_CHAT_ID in Portainer}
       APP_USERNAME: ${APP_USERNAME:?Set APP_USERNAME in Portainer}
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in Portainer}
-      VNC_PASSWORD: ${VNC_PASSWORD:?Set VNC_PASSWORD in Portainer}
     ports:
       - "${APP_PORT:-3000}:${APP_PORT:-3000}"
-      - "127.0.0.1:${VNC_WEB_PORT:-6080}:6080"
     volumes:
       - monitor-data:/app/data
-      - browser-profile:/app/browser-profile
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    shm_size: 256mb
-    mem_limit: 1g
-    mem_reservation: 512m
-    cpus: 1.5
-    pids_limit: 256
+    mem_limit: 256m
+    mem_reservation: 64m
+    cpus: 0.5
+    pids_limit: 64
 
 volumes:
   monitor-data:
     name: allegro-monitor-data
-  browser-profile:
-    name: allegro-monitor-browser-profile

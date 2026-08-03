@@ -5,8 +5,9 @@ Lekka, prywatna aplikacja monitorująca wyniki wyszukiwania Allegro. Pierwsze sp
 ## Funkcje
 
 - kilka niezależnych URL-i wyszukiwania i interwałów;
-- pełny Chromium uruchamiany w wirtualnym ekranie tylko podczas sprawdzania;
-- trwały profil przeglądarki zachowujący cookies między sprawdzeniami;
+- rozszerzenie Manifest V3 dla Vivaldi i innych przeglądarek Chromium;
+- odświeżanie wskazanych, otwartych kart wyszukiwania;
+- badge, powiadomienia systemowe i podświetlanie nowych ofert;
 - SQLite bez osobnego serwera bazy;
 - proste GUI bez frameworka frontendowego;
 - opcjonalne powiadomienia Telegram i Basic Auth;
@@ -14,12 +15,11 @@ Lekka, prywatna aplikacja monitorująca wyniki wyszukiwania Allegro. Pierwsze sp
 
 ## Uruchomienie lokalne
 
-Wymagane są Node.js 22 i Chromium dla Playwrighta.
+Wymagany jest Node.js 22.
 
 ```bash
 cp .env.example .env
 npm install
-npx playwright install chromium
 npm run dev
 ```
 
@@ -45,9 +45,13 @@ docker compose up -d
 
 Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
-W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME`, `APP_PASSWORD` i `VNC_PASSWORD`. Opcjonalne `APP_PORT`, `VNC_WEB_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `6080`, `30` i `latest`.
+W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME` i `APP_PASSWORD`. Opcjonalne `APP_PORT` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000` i `latest`.
 
-Chromium działa stale w trybie graficznym na wirtualnym ekranie Xvfb i używa jednej karty. Profil jest przechowywany w wolumenie `allegro-monitor-browser-profile`, a screenshoty stron blokady lub błędów trafiają do katalogu `diagnostics` w wolumenie `allegro-monitor-data`. Port noVNC jest dostępny wyłącznie na `127.0.0.1` serwera. Przy captcha utwórz tunel `ssh -L 6080:127.0.0.1:6080 UZYTKOWNIK@SERWER`, otwórz `http://127.0.0.1:6080/vnc.html?autoconnect=true`, podaj `VNC_PASSWORD` i wykonaj ręczną weryfikację.
+## Rozszerzenie Vivaldi
+
+Po uruchomieniu serwera przejdź do `/extension`, pobierz ZIP i postępuj według instrukcji. Rozszerzenie paruje się z serwerem jednorazowym kodem ważnym przez 10 minut. Następnie otwórz wyszukiwanie Allegro i wybierz w popupie **Monitoruj tę kartę**.
+
+Rozszerzenie odświeża wskazane karty pojedynczo. Pierwszy odczyt tworzy stan początkowy; kolejne nowe oferty pojawiają się w badge, popupie, powiadomieniu systemowym, panelu WWW i na Telegramie.
 
 ## Deployment
 
@@ -61,6 +65,4 @@ Na serwerze katalog `/opt/allegro-monitor` powinien zawierać `compose.yml`. Dan
 
 ## Ograniczenia
 
-Allegro może zmienić HTML lub zażądać captcha. Aplikacja nie próbuje omijać takich zabezpieczeń: zapisuje błąd w panelu i ponawia sprawdzenie później. Zalecany interwał to co najmniej 10 minut.
-
-Centra danych bywają blokowane niezależnie od częstotliwości zapytań. Przed właściwym wdrożeniem trzeba wykonać próbę z docelowego serwera. Jeśli serwer stale otrzymuje HTTP 403 lub captcha, monitor nie będzie tam niezawodny i należy użyć oficjalnych powiadomień Allegro albo zrezygnować z tej lokalizacji.
+Vivaldi musi być uruchomiony, a komputer nie może być uśpiony. Rozszerzenie nie omija captcha: pozostawia kartę do ręcznej weryfikacji i wstrzymuje pozostałe sprawdzenia w danym cyklu. Zalecany interwał to co najmniej 10 minut.

@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Allegro Monitor Companion",
+  "version": "0.1.0",
+  "description": "Monitoruje otwarte wyszukiwania Allegro i przekazuje nowe oferty do prywatnego serwera.",
+  "permissions": ["alarms", "storage", "tabs", "scripting", "notifications"],
+  "host_permissions": [
+    "https://allegro.pl/*",
+    "https://*.allegro.pl/*",
+    "https://allegro-monitor.kcn333.com/*"
+  ],
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "icons": { "128": "icon-128.png" },
+  "action": { "default_popup": "popup.html", "default_title": "Allegro Monitor", "default_icon": "icon-128.png" }
+}
