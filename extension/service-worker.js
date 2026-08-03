@@ -78,13 +78,18 @@ function extractListings() {
   const found = new Map();
   const anchors = [...document.querySelectorAll("a[href]")];
   const offerAnchors = anchors.filter(anchor => {
-    try { return new URL(anchor.href, location.href).hostname.endsWith("allegro.pl") && new URL(anchor.href, location.href).pathname.includes("/oferta/"); }
+    try {
+      const url = new URL(anchor.href, location.href);
+      return url.hostname.endsWith("allegro.pl") && (/^\/oferta\//.test(url.pathname) || /^\/produkt\//.test(url.pathname));
+    }
     catch { return false; }
   });
   for (const anchor of offerAnchors) {
     const url = new URL(anchor.href, location.href);
     const href = url.href;
-    const id = url.searchParams.get("offerId") || url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] || url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
+    const numericId = url.searchParams.get("offerId") || url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] || url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
+    const productId = url.pathname.match(/-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/)?$/i)?.[1];
+    const id = numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
     if (!id || found.has(id)) continue;
     const card = anchor.closest("article") || anchor.closest('[data-box-name="items-v3"] > div') || anchor.closest('[data-box-name]') || anchor.closest("section") || anchor.parentElement;
     const heading = card?.querySelector("h2, h3") || anchor.querySelector("h2, h3");
@@ -123,8 +128,12 @@ async function readListings(tabId, timeoutMs = 30000) {
 
 function markNewOffers(ids) {
   const wanted = new Set(ids);
-  for (const anchor of document.querySelectorAll('a[href*="/oferta/"]')) {
-    const id = anchor.href.match(/(?:oferta\/[^/?#]*-|offerId=)(\d{6,})/i)?.[1];
+  for (const anchor of document.querySelectorAll('a[href*="/oferta/"], a[href*="/produkt/"]')) {
+    let url;
+    try { url = new URL(anchor.href, location.href); } catch { continue; }
+    const numericId = url.searchParams.get("offerId") || url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] || url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
+    const productId = url.pathname.match(/-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/)?$/i)?.[1];
+    const id = numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
     if (!id || !wanted.has(id)) continue;
     const card = anchor.closest("article") || anchor.closest('[data-box-name]') || anchor.parentElement;
     if (card) { card.style.outline = "3px solid #ff5a00"; card.style.outlineOffset = "3px"; }
