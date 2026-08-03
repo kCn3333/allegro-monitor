@@ -42,7 +42,7 @@ export APP_PASSWORD="..."
 docker compose up -d
 ```
 
-Port jest dostępny wyłącznie na `127.0.0.1:3000`; publiczny HTTPS powinien zapewnić Caddy lub Nginx. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
+Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
 W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME` i `APP_PASSWORD`. Opcjonalne `APP_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `30` i `latest`.
 
