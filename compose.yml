@@ -3,9 +3,17 @@ services:
     image: ghcr.io/kcn3333/allegro-monitor:${IMAGE_TAG:-latest}
     restart: unless-stopped
     init: true
-    env_file: .env
+    environment:
+      PORT: ${APP_PORT:-3000}
+      HOST: 0.0.0.0
+      DATABASE_PATH: /app/data/monitor.sqlite
+      CHECK_TICK_SECONDS: ${CHECK_TICK_SECONDS:-30}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?Set TELEGRAM_CHAT_ID in Portainer}
+      APP_USERNAME: ${APP_USERNAME:?Set APP_USERNAME in Portainer}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in Portainer}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${APP_PORT:-3000}:${APP_PORT:-3000}"
     volumes:
       - ./data:/app/data
     security_opt:

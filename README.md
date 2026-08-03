@@ -35,12 +35,17 @@ Bez tych wartości monitor działa normalnie, ale nie wysyła wiadomości.
 ## Docker
 
 ```bash
-cp .env.example .env
 mkdir -p data
+export TELEGRAM_BOT_TOKEN="..."
+export TELEGRAM_CHAT_ID="..."
+export APP_USERNAME="admin"
+export APP_PASSWORD="..."
 docker compose up -d
 ```
 
 Port jest dostępny wyłącznie na `127.0.0.1:3000`; publiczny HTTPS powinien zapewnić Caddy lub Nginx.
+
+W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME` i `APP_PASSWORD`. Opcjonalne `APP_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `30` i `latest`.
 
 ## Deployment
 
@@ -50,7 +55,7 @@ Workflow buduje obraz `ghcr.io/kcn3333/allegro-monitor`. Ręczny workflow `Deplo
 - `DEPLOY_USER` — użytkownik SSH;
 - `DEPLOY_SSH_KEY` — prywatny klucz wdrożeniowy.
 
-Na serwerze katalog `/opt/allegro-monitor` powinien zawierać `compose.yml`, `.env` oraz katalog `data`. Konto wdrożeniowe musi mieć dostęp do polecenia `docker compose`.
+Na serwerze katalog `/opt/allegro-monitor` powinien zawierać `compose.yml` oraz katalog `data`. Konto wdrożeniowe musi mieć dostęp do polecenia `docker compose`.
 
 ## Ograniczenia
 
