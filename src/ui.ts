@@ -5,37 +5,71 @@ const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => 
 }[char]!));
 
 function date(value: string | null): string {
-  return value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
+  return value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "Jeszcze nie sprawdzono";
+}
+
+function queryLabel(url: string): string {
+  return new URL(url).searchParams.get("string") || "Wyszukiwanie Allegro";
+}
+
+function monitorCard(monitor: Monitor): string {
+  const state = !monitor.enabled ? { label: "Wstrzymany", className: "paused" }
+    : monitor.lastError ? { label: "Wymaga uwagi", className: "failed" }
+      : monitor.initialized ? { label: "Działa", className: "healthy" }
+        : { label: "Pierwsze sprawdzenie", className: "waiting" };
+
+  return `<article class="monitor-card">
+    <div class="monitor-main">
+      <div class="monitor-title"><span class="status-dot ${state.className}"></span><div>
+        <h3>${esc(monitor.name)}</h3><p>${esc(queryLabel(monitor.url))}</p>
+      </div></div>
+      <span class="status-pill ${state.className}">${state.label}</span>
+    </div>
+    <dl class="monitor-meta">
+      <div><dt>Sprawdzanie</dt><dd>co ${monitor.intervalMinutes} min</dd></div>
+      <div><dt>Ostatnia próba</dt><dd>${date(monitor.lastCheckedAt)}</dd></div>
+    </dl>
+    ${monitor.lastError ? `<div class="alert"><strong>Nie udało się sprawdzić Allegro</strong><span>${esc(monitor.lastError)}</span></div>` : ""}
+    <div class="card-actions">
+      <a class="button subtle" href="${esc(monitor.url)}" target="_blank" rel="noreferrer">Otwórz Allegro ↗</a>
+      <form method="post" action="/monitors/${monitor.id}/check"><button class="button primary">Sprawdź teraz</button></form>
+      <form method="post" action="/monitors/${monitor.id}/toggle"><button class="button subtle">${monitor.enabled ? "Wstrzymaj" : "Wznów"}</button></form>
+      <form method="post" action="/monitors/${monitor.id}/delete" onsubmit="return confirm('Usunąć monitor wraz z historią ofert?')"><button class="button danger">Usuń</button></form>
+    </div>
+  </article>`;
+}
+
+function offerCard(listing: Listing & { monitorName: string; firstSeenAt: string }): string {
+  return `<article class="offer-card">
+    <div class="offer-image">${listing.imageUrl ? `<img src="${esc(listing.imageUrl)}" alt="" loading="lazy">` : "<span>📖</span>"}</div>
+    <div class="offer-content"><span class="eyebrow">${esc(listing.monitorName)} · ${date(listing.firstSeenAt)}</span>
+      <a href="${esc(listing.url)}" target="_blank" rel="noreferrer">${esc(listing.title)}</a>
+      <strong>${esc(listing.price || "Cena nieznana")}</strong></div>
+  </article>`;
 }
 
 export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorName: string; firstSeenAt: string }>): string {
-  const rows = monitors.map(m => `<tr>
-    <td><strong>${esc(m.name)}</strong><small>${esc(new URL(m.url).searchParams.get("string") || m.url)}</small></td>
-    <td><span class="badge ${m.enabled ? "on" : "off"}">${m.enabled ? "aktywny" : "wyłączony"}</span></td>
-    <td>co ${m.intervalMinutes} min</td><td>${date(m.lastCheckedAt)}</td>
-    <td class="status ${m.lastError ? "error" : ""}">${esc(m.lastError || (m.initialized ? "OK" : "oczekuje"))}</td>
-    <td class="actions">
-      <form method="post" action="/monitors/${m.id}/check"><button>Sprawdź</button></form>
-      <form method="post" action="/monitors/${m.id}/toggle"><button>${m.enabled ? "Wyłącz" : "Włącz"}</button></form>
-      <form method="post" action="/monitors/${m.id}/delete" onsubmit="return confirm('Usunąć monitor i jego historię?')"><button class="danger">Usuń</button></form>
-    </td></tr>`).join("");
-
-  const cards = listings.map(l => `<article class="offer">
-    ${l.imageUrl ? `<img src="${esc(l.imageUrl)}" alt="" loading="lazy">` : ""}
-    <div><small>${esc(l.monitorName)} · ${date(l.firstSeenAt)}</small>
-      <a href="${esc(l.url)}" target="_blank" rel="noreferrer">${esc(l.title)}</a>
-      <strong>${esc(l.price || "Cena nieznana")}</strong></div></article>`).join("");
-
   return `<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Allegro Monitor</title><style>
-  :root{font-family:system-ui,sans-serif;color:#202124;background:#f6f7f9}body{max-width:1100px;margin:0 auto;padding:24px}h1{margin-bottom:4px}p{color:#62666d}section{background:white;padding:20px;border-radius:12px;margin:20px 0;box-shadow:0 1px 4px #0001}form.add{display:grid;grid-template-columns:1fr 2fr 120px auto;gap:10px}input,button{font:inherit;padding:9px;border:1px solid #d3d6da;border-radius:7px}button{cursor:pointer;background:#fff}button.primary{background:#ff5a00;color:#fff;border-color:#ff5a00}button.danger{color:#b3261e}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid #eee;vertical-align:top}td small{display:block;color:#777;margin-top:4px}.actions{display:flex;gap:5px}.badge{padding:3px 7px;border-radius:20px;font-size:12px}.on{background:#d9f5e3;color:#176b38}.off{background:#eee}.error{color:#b3261e;max-width:260px}.offer{display:flex;gap:12px;border-bottom:1px solid #eee;padding:12px 0}.offer img{width:64px;height:64px;object-fit:contain}.offer div{display:grid;gap:4px}.offer a{color:#174ea6;text-decoration:none}.offer small{color:#777}@media(max-width:800px){form.add{grid-template-columns:1fr}section{overflow:auto}.actions{display:grid}body{padding:12px}}
-  </style></head><body><header><h1>📚 Allegro Monitor</h1><p>Powiadomienia o nowych ofertach poszukiwanych książek</p></header>
-  <section><h2>Dodaj wyszukiwanie</h2><form class="add" method="post" action="/monitors">
-    <input name="name" placeholder="np. Yukio Mishima" required maxlength="100">
-    <input name="url" type="url" placeholder="https://allegro.pl/listing?..." required>
-    <input name="intervalMinutes" type="number" value="10" min="2" max="1440" required>
-    <button class="primary">Dodaj</button></form></section>
-  <section><h2>Monitory</h2>${monitors.length ? `<table><thead><tr><th>Nazwa</th><th>Status</th><th>Interwał</th><th>Ostatnio</th><th>Wynik</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : "<p>Nie masz jeszcze żadnych monitorów.</p>"}</section>
-  <section><h2>Ostatnio znalezione</h2>${cards || "<p>Pierwsze sprawdzenie zapisze bieżące oferty bez powiadomień.</p>"}</section>
-  </body></html>`;
+  <meta name="color-scheme" content="light dark"><title>Allegro Monitor</title>
+  <script>try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch{}</script>
+  <style>
+  :root{--bg:#f3f4f6;--surface:#fff;--surface-2:#f8f8fa;--text:#17181a;--muted:#686c73;--line:#e2e4e8;--brand:#ff5a00;--brand-hover:#e64f00;--brand-soft:#fff0e8;--danger:#b42318;--danger-soft:#fff0ee;--shadow:0 8px 26px rgba(20,24,32,.07);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light}
+  :root[data-theme="dark"]{--bg:#101113;--surface:#191b1f;--surface-2:#22252a;--text:#f2f3f4;--muted:#a5a9b0;--line:#31343a;--brand:#ff6b1a;--brand-hover:#ff7c38;--brand-soft:#392319;--danger:#ff8a80;--danger-soft:#38201f;--shadow:0 10px 30px rgba(0,0,0,.28);color-scheme:dark}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}.shell{width:min(1080px,calc(100% - 32px));margin:auto;padding:32px 0 64px}.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px}.brand{display:flex;gap:12px;align-items:center}.logo{display:grid;place-items:center;width:44px;height:44px;border-radius:13px;background:var(--brand);color:white;font-size:22px}.brand h1{font-size:20px;margin:0}.brand p{margin:1px 0 0;color:var(--muted);font-size:13px}.theme-toggle{border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:10px;padding:9px 12px;cursor:pointer}.hero{display:grid;grid-template-columns:1.1fr .9fr;gap:24px;align-items:stretch;margin-bottom:34px}.intro{padding:28px 6px}.eyebrow{display:block;color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.intro h2{font-size:clamp(28px,4vw,44px);line-height:1.08;margin:10px 0 14px;letter-spacing:-.035em}.intro p{color:var(--muted);font-size:16px;max-width:560px}.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)}.panel h2{font-size:18px;margin:0 0 4px}.panel-lead{margin:0 0 20px;color:var(--muted);font-size:13px}.field{display:grid;gap:6px;margin-top:14px}.field label{font-size:13px;font-weight:700}.field small{color:var(--muted)}input{width:100%;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:9px;padding:11px 12px;font:inherit;outline:none}input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}.inline-fields{display:grid;grid-template-columns:1fr 130px;gap:12px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid transparent;border-radius:9px;padding:8px 13px;font:inherit;font-weight:650;text-decoration:none;cursor:pointer;white-space:nowrap}.primary{background:var(--brand);color:#fff}.primary:hover{background:var(--brand-hover)}.subtle{border-color:var(--line);background:var(--surface);color:var(--text)}.danger{background:transparent;color:var(--danger)}.add-button{width:100%;margin-top:20px}.section-head{display:flex;justify-content:space-between;align-items:end;margin:34px 0 14px}.section-head h2{font-size:21px;margin:0}.section-head span{color:var(--muted);font-size:13px}.monitor-list{display:grid;gap:14px}.monitor-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}.monitor-main{display:flex;justify-content:space-between;gap:16px}.monitor-title{display:flex;align-items:flex-start;gap:11px}.monitor-title h3{margin:0;font-size:17px}.monitor-title p{margin:2px 0 0;color:var(--muted)}.status-dot{width:10px;height:10px;border-radius:50%;margin-top:7px;flex:0 0 auto}.status-dot.healthy{background:#22a35a}.status-dot.failed{background:#e5484d}.status-dot.waiting{background:#e5a000}.status-dot.paused{background:#858b94}.status-pill{font-size:12px;padding:4px 9px;border-radius:99px;height:max-content}.status-pill.healthy{color:#168044;background:#e6f7ed}.status-pill.failed{color:var(--danger);background:var(--danger-soft)}.status-pill.waiting{color:#8a6200;background:#fff5d6}.status-pill.paused{color:var(--muted);background:var(--surface-2)}[data-theme="dark"] .status-pill.healthy{background:#173525;color:#76d99b}[data-theme="dark"] .status-pill.waiting{background:#382f16;color:#f2c85b}.monitor-meta{display:flex;gap:36px;margin:18px 0}.monitor-meta div{display:grid;gap:2px}.monitor-meta dt{font-size:12px;color:var(--muted)}.monitor-meta dd{margin:0;font-weight:650}.alert{display:grid;gap:3px;background:var(--danger-soft);color:var(--danger);padding:11px 13px;border-radius:9px;font-size:13px;margin-bottom:14px}.alert span{overflow-wrap:anywhere}.card-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}.card-actions form{margin:0}.empty{padding:38px;text-align:center;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:14px}.empty strong{display:block;color:var(--text);font-size:16px;margin-bottom:4px}.offers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.offer-card{display:flex;gap:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px}.offer-image{display:grid;place-items:center;width:72px;height:82px;flex:0 0 auto;border-radius:8px;background:var(--surface-2);overflow:hidden;font-size:25px}.offer-image img{width:100%;height:100%;object-fit:contain}.offer-content{display:flex;min-width:0;flex-direction:column;gap:4px}.offer-content a{color:var(--text);font-weight:700;text-decoration:none;line-height:1.35}.offer-content a:hover{color:var(--brand)}.offer-content strong{margin-top:auto;color:var(--brand)}
+  @media(max-width:760px){.shell{width:min(100% - 20px,1080px);padding-top:18px}.hero{grid-template-columns:1fr}.intro{padding:12px 2px}.offers{grid-template-columns:1fr}.monitor-main{align-items:flex-start}.monitor-meta{gap:18px;flex-wrap:wrap}.card-actions{display:grid;grid-template-columns:1fr 1fr}.card-actions .button,.card-actions form button{width:100%}.inline-fields{grid-template-columns:1fr}.brand p{display:none}}
+  </style></head><body><main class="shell">
+    <header class="topbar"><div class="brand"><span class="logo">A</span><div><h1>Allegro Monitor</h1><p>Obserwuj rzadkie książki bez ciągłego odświeżania</p></div></div><button class="theme-toggle" type="button" id="theme-toggle" aria-label="Zmień motyw">◐ Motyw</button></header>
+    <section class="hero"><div class="intro"><span class="eyebrow">Twój prywatny asystent</span><h2>Nowa oferta?<br>Dowiesz się pierwszy.</h2><p>Wklej adres wyników wyszukiwania z Allegro. Pierwsze sprawdzenie zapisze aktualne oferty, a Telegram powiadomi Cię dopiero o nowych.</p></div>
+      <form class="panel" method="post" action="/monitors"><h2>Dodaj obserwowane wyszukiwanie</h2><p class="panel-lead">Potrzebujesz nazwy i pełnego adresu strony wyników.</p>
+        <div class="inline-fields"><div class="field"><label for="name">Nazwa monitora</label><input id="name" name="name" placeholder="np. Yukio Mishima" required maxlength="100"></div><div class="field"><label for="interval">Co ile minut?</label><input id="interval" name="intervalMinutes" type="number" value="10" min="2" max="1440" required></div></div>
+        <div class="field"><label for="url">Link do wyszukiwania Allegro</label><input id="url" name="url" type="url" placeholder="https://allegro.pl/listing?string=..." required><small>Skopiuj adres z paska przeglądarki po wyszukaniu książki.</small></div>
+        <button class="button primary add-button">Zacznij obserwować</button></form></section>
+    <section><div class="section-head"><h2>Obserwowane wyszukiwania</h2><span>${monitors.length} ${monitors.length === 1 ? "monitor" : "monitorów"}</span></div>
+      <div class="monitor-list">${monitors.length ? monitors.map(monitorCard).join("") : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Dodaj pierwsze wyszukiwanie w formularzu powyżej.</div>`}</div></section>
+    <section><div class="section-head"><h2>Ostatnio znalezione oferty</h2><span>maksymalnie 50</span></div>
+      ${listings.length ? `<div class="offers">${listings.map(offerCard).join("")}</div>` : `<div class="empty"><strong>Tu pojawią się książki</strong>Pierwsze sprawdzenie tworzy punkt odniesienia i nie wysyła powiadomień.</div>`}</section>
+  </main><script>
+  const root=document.documentElement,toggle=document.getElementById('theme-toggle');
+  toggle?.addEventListener('click',()=>{const current=root.dataset.theme||((matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');const next=current==='dark'?'light':'dark';root.dataset.theme=next;localStorage.setItem('theme',next)});
+  </script></body></html>`;
 }

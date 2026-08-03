@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import formbody from "@fastify/formbody";
 import Fastify from "fastify";
 import { assertAllegroUrl } from "./allegro.js";
 import { config } from "./config.js";
@@ -9,6 +10,8 @@ import { renderPage } from "./ui.js";
 const app = Fastify({ logger: true, bodyLimit: 32_000 });
 const store = new Store(config.databasePath);
 const scheduler = new Scheduler(store);
+
+await app.register(formbody);
 
 app.addHook("onRequest", async (request, reply) => {
   if (!config.username || !config.password || request.url === "/health") return;
