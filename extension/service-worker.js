@@ -76,20 +76,49 @@ function extractListings() {
     return { blocked: true, listings: [] };
   }
   const found = new Map();
-  for (const anchor of document.querySelectorAll('a[href*="/oferta/"]')) {
-    const href = anchor.href;
-    const match = href.match(/(?:oferta\/[^/?#]*-|offerId=)(\d{6,})/i);
-    if (!match?.[1] || found.has(match[1])) continue;
-    const card = anchor.closest("article") || anchor.closest('[data-box-name]') || anchor.parentElement;
-    const heading = card?.querySelector("h2, h3");
-    const title = (anchor.getAttribute("title") || anchor.getAttribute("aria-label") || heading?.textContent || anchor.textContent || "").replace(/\s+/g, " ").trim();
-    if (!title) continue;
+  const anchors = [...document.querySelectorAll("a[href]")];
+  const offerAnchors = anchors.filter(anchor => {
+    try { return new URL(anchor.href, location.href).hostname.endsWith("allegro.pl") && new URL(anchor.href, location.href).pathname.includes("/oferta/"); }
+    catch { return false; }
+  });
+  for (const anchor of offerAnchors) {
+    const url = new URL(anchor.href, location.href);
+    const href = url.href;
+    const id = url.searchParams.get("offerId") || url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] || url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
+    if (!id || found.has(id)) continue;
+    const card = anchor.closest("article") || anchor.closest('[data-box-name="items-v3"] > div') || anchor.closest('[data-box-name]') || anchor.closest("section") || anchor.parentElement;
+    const heading = card?.querySelector("h2, h3") || anchor.querySelector("h2, h3");
+    const image = card?.querySelector("img") || anchor.querySelector("img");
+    const title = (anchor.getAttribute("title") || anchor.getAttribute("aria-label") || heading?.textContent || image?.getAttribute("alt") || anchor.textContent || "").replace(/\s+/g, " ").trim();
+    if (!title || /^przejdź|^przejdz$/i.test(title)) continue;
     const cardText = (card?.textContent || "").replace(/\s+/g, " ");
     const price = cardText.match(/\d[\d\s]*(?:[,.]\d{2})?\s*zł/i)?.[0]?.trim() || null;
-    const image = card?.querySelector("img");
-    found.set(match[1], { externalId: match[1], title, url: href, price, imageUrl: image?.currentSrc || image?.src || null });
+    found.set(id, { externalId: id, title, url: href, price, imageUrl: image?.currentSrc || image?.src || null });
   }
-  return { blocked: false, listings: [...found.values()] };
+  return {
+    blocked: false,
+    listings: [...found.values()],
+    diagnostic: {
+      url: location.href,
+      title: document.title,
+      readyState: document.readyState,
+      anchors: anchors.length,
+      offerAnchors: offerAnchors.length,
+      sampleHrefs: offerAnchors.slice(0, 3).map(anchor => anchor.href)
+    }
+  };
+}
+
+async function readListings(tabId, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastResult = null;
+  do {
+    const execution = await chrome.scripting.executeScript({ target: { tabId }, func: extractListings });
+    lastResult = execution[0]?.result;
+    if (lastResult?.blocked || lastResult?.listings?.length) return lastResult;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  } while (Date.now() < deadline);
+  return lastResult;
 }
 
 function markNewOffers(ids) {
@@ -107,16 +136,20 @@ async function checkOne(watch) {
   const tab = await findTab(watch);
   if (!tab?.id) throw new Error(`Karta „${watch.name}” jest zamknięta`);
   watch.tabId = tab.id;
+  await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   const loaded = waitForLoad(tab.id);
   await chrome.tabs.reload(tab.id);
   await loaded;
-  await new Promise(resolve => setTimeout(resolve, 3500));
-  const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractListings });
+  const result = await readListings(tab.id);
+  if (!result) throw new Error("Nie udało się odczytać zawartości karty Allegro");
   if (result.blocked) {
     await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` });
     throw new Error("Captcha lub blokada w karcie Allegro");
   }
-  if (!result.listings.length) throw new Error("Nie znaleziono ofert na stronie");
+  if (!result.listings.length) {
+    const details = result.diagnostic || {};
+    throw new Error(`Nie znaleziono ofert (linki: ${details.anchors ?? 0}, linki ofert: ${details.offerAnchors ?? 0}, strona: ${details.title || details.url || "nieznana"})`);
+  }
   const response = await api(`/api/extension/monitors/${watch.monitorId}/results`, { method: "POST", body: JSON.stringify({ listings: result.listings }) });
   const fresh = response.newListings || [];
   if (fresh.length) {
