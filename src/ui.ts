@@ -1,11 +1,14 @@
 import type { Listing, Monitor } from "./types.js";
+import { config } from "./config.js";
 
 const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]!));
 
 function date(value: string | null): string {
-  return value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "Jeszcze nie sprawdzono";
+  return value ? new Intl.DateTimeFormat("pl-PL", {
+    dateStyle: "short", timeStyle: "short", timeZone: config.timeZone
+  }).format(new Date(value)) : "Jeszcze nie sprawdzono";
 }
 
 function queryLabel(url: string): string {

@@ -8,6 +8,8 @@ services:
       HOST: 0.0.0.0
       DATABASE_PATH: /app/data/monitor.sqlite
       EXTENSION_ZIP_PATH: /app/extension.zip
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Europe/Warsaw}
+      TZ: ${APP_TIME_ZONE:-Europe/Warsaw}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?Set TELEGRAM_CHAT_ID in Portainer}
       APP_USERNAME: ${APP_USERNAME:?Set APP_USERNAME in Portainer}
