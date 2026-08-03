@@ -10,7 +10,13 @@ FROM node:22-bookworm-slim
 ENV NODE_ENV=production PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev && npx playwright install --with-deps chromium && command -v xvfb-run && rm -rf /var/lib/apt/lists/*
+RUN npm ci --omit=dev \
+    && npx playwright install --with-deps chromium \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends xauth \
+    && command -v xvfb-run \
+    && command -v xauth \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/dist ./dist
 RUN mkdir -p /app/data /app/browser-profile && chown -R node:node /app/data /app/browser-profile
 USER node
