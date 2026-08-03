@@ -45,9 +45,9 @@ docker compose up -d
 
 Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
-W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME` i `APP_PASSWORD`. Opcjonalne `APP_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `30` i `latest`.
+W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME`, `APP_PASSWORD` i `VNC_PASSWORD`. Opcjonalne `APP_PORT`, `VNC_WEB_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `6080`, `30` i `latest`.
 
-Chromium działa w trybie graficznym na wirtualnym ekranie Xvfb. Profil jest przechowywany w wolumenie `allegro-monitor-browser-profile`, a screenshoty stron blokady lub błędów trafiają do katalogu `diagnostics` w wolumenie `allegro-monitor-data`. Ten tryb zwiększa szansę poprawnego załadowania strony, ale nie omija captcha i nie gwarantuje dostępu, jeśli Allegro zablokuje sesję.
+Chromium działa stale w trybie graficznym na wirtualnym ekranie Xvfb i używa jednej karty. Profil jest przechowywany w wolumenie `allegro-monitor-browser-profile`, a screenshoty stron blokady lub błędów trafiają do katalogu `diagnostics` w wolumenie `allegro-monitor-data`. Port noVNC jest dostępny wyłącznie na `127.0.0.1` serwera. Przy captcha utwórz tunel `ssh -L 6080:127.0.0.1:6080 UZYTKOWNIK@SERWER`, otwórz `http://127.0.0.1:6080/vnc.html?autoconnect=true`, podaj `VNC_PASSWORD` i wykonaj ręczną weryfikację.
 
 ## Deployment
 

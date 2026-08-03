@@ -55,7 +55,7 @@ app.post<{ Params: { id: string } }>("/monitors/:id/check", async (request, repl
 app.post<{ Params: { id: string } }>("/monitors/:id/toggle", async (request, reply) => { store.toggleMonitor(Number(request.params.id)); return reply.redirect("/"); });
 app.post<{ Params: { id: string } }>("/monitors/:id/delete", async (request, reply) => { store.deleteMonitor(Number(request.params.id)); return reply.redirect("/"); });
 
-const shutdown = async () => { scheduler.stop(); await app.close(); store.close(); };
+const shutdown = async () => { await scheduler.stop(); await app.close(); store.close(); };
 process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
 

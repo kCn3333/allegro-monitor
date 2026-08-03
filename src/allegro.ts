@@ -41,6 +41,7 @@ export function parseListings(html: string): Listing[] {
 
 export class AllegroClient {
   private context: BrowserContext | null = null;
+  private page: Page | null = null;
 
   async start(): Promise<void> {
     fs.mkdirSync(config.browserProfilePath, { recursive: true });
@@ -50,35 +51,40 @@ export class AllegroClient {
       timezoneId: "Europe/Warsaw",
       viewport: { width: 1365, height: 768 }
     });
+    await this.context.route("**/*", async route => {
+      const type = route.request().resourceType();
+      if (type === "media" || type === "font") return route.abort();
+      return route.continue();
+    });
+    this.page = this.context.pages()[0] || await this.context.newPage();
   }
 
   async fetch(url: string): Promise<Listing[]> {
     if (!this.context) throw new Error("Przeglądarka nie została uruchomiona");
     assertAllegroUrl(url);
-    const page = await this.context.newPage();
-    try {
-      const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-      await page.waitForTimeout(6000);
-      const html = await page.content();
-      if (/captcha-delivery|please enable js|verify you are human/i.test(html)) {
-        await this.saveDiagnostic(page, "captcha", response?.status());
-        throw new Error("Allegro zażądało weryfikacji captcha");
-      }
-      const listings = parseListings(html);
-      if (listings.length === 0) {
-        await this.saveDiagnostic(page, `http-${response?.status() ?? "unknown"}`, response?.status());
-        if (!response || response.status() >= 400) throw new Error(`Allegro odpowiedziało kodem ${response?.status() ?? "brak"}`);
-        throw new Error("Nie znaleziono ofert; struktura strony mogła się zmienić");
-      }
-      return listings;
-    } finally {
-      await page.close();
+    const page = this.page || await this.context.newPage();
+    this.page = page;
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    await page.waitForTimeout(6000);
+    const html = await page.content();
+    const visibleText = await page.locator("body").innerText().catch(() => "");
+    if (/captcha-delivery|please enable js|verify you are human|potwierd(?:ź|z).{0,30}(?:człowiekiem|czlowiekiem)/is.test(`${html}\n${visibleText}`)) {
+      await this.saveDiagnostic(page, "captcha", response?.status());
+      throw new Error("Allegro zażądało weryfikacji captcha — otwórz noVNC i potwierdź, że jesteś człowiekiem");
     }
+    const listings = parseListings(html);
+    if (listings.length === 0) {
+      await this.saveDiagnostic(page, `http-${response?.status() ?? "unknown"}`, response?.status());
+      if (!response || response.status() >= 400) throw new Error(`Allegro odpowiedziało kodem ${response?.status() ?? "brak"}`);
+      throw new Error("Nie znaleziono ofert; struktura strony mogła się zmienić");
+    }
+    return listings;
   }
 
   async stop(): Promise<void> {
     await this.context?.close();
     this.context = null;
+    this.page = null;
   }
 
   private async saveDiagnostic(page: Page, reason: string, status?: number): Promise<void> {
