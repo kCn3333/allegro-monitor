@@ -29,7 +29,7 @@ function monitorCard(monitor: Monitor): string {
       <div><dt>Sprawdzanie</dt><dd>co ${monitor.intervalMinutes} min</dd></div>
       <div><dt>Ostatnia próba</dt><dd>${date(monitor.lastCheckedAt)}</dd></div>
     </dl>
-    ${monitor.lastError ? `<div class="alert"><strong>Nie udało się sprawdzić Allegro</strong><span>${esc(monitor.lastError)}</span></div>` : ""}
+    ${monitor.lastError ? `<div class="alert"><strong>Nie udało się sprawdzić Allegro</strong><span>${esc(monitor.lastError)}</span><span><a href="/diagnostics/latest.png" target="_blank">Zobacz ostatni screenshot</a> · <a href="/diagnostics/latest" target="_blank">Raport techniczny</a></span></div>` : ""}
     <div class="card-actions">
       <a class="button subtle" href="${esc(monitor.url)}" target="_blank" rel="noreferrer">Otwórz Allegro ↗</a>
       <form method="post" action="/monitors/${monitor.id}/check"><button class="button primary">Sprawdź teraz</button></form>

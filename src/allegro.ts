@@ -61,12 +61,12 @@ export class AllegroClient {
       await page.waitForTimeout(6000);
       const html = await page.content();
       if (/captcha-delivery|please enable js|verify you are human/i.test(html)) {
-        await this.saveDiagnostic(page, "captcha");
+        await this.saveDiagnostic(page, "captcha", response?.status());
         throw new Error("Allegro zażądało weryfikacji captcha");
       }
       const listings = parseListings(html);
       if (listings.length === 0) {
-        await this.saveDiagnostic(page, `http-${response?.status() ?? "unknown"}`);
+        await this.saveDiagnostic(page, `http-${response?.status() ?? "unknown"}`, response?.status());
         if (!response || response.status() >= 400) throw new Error(`Allegro odpowiedziało kodem ${response?.status() ?? "brak"}`);
         throw new Error("Nie znaleziono ofert; struktura strony mogła się zmienić");
       }
@@ -81,11 +81,23 @@ export class AllegroClient {
     this.context = null;
   }
 
-  private async saveDiagnostic(page: Page, reason: string): Promise<void> {
+  private async saveDiagnostic(page: Page, reason: string, status?: number): Promise<void> {
     try {
       fs.mkdirSync(config.diagnosticsPath, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      await page.screenshot({ path: path.join(config.diagnosticsPath, `${stamp}-${reason}.png`), fullPage: true });
+      const screenshotPath = path.join(config.diagnosticsPath, `${stamp}-${reason}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const details = await page.evaluate(() => ({
+        title: document.title,
+        url: location.href,
+        articleCount: document.querySelectorAll("article").length,
+        linkCount: document.querySelectorAll("a[href]").length,
+        offerLinkCount: document.querySelectorAll('a[href*="/oferta/"]').length,
+        bodyPreview: document.body?.innerText.replace(/\s+/g, " ").trim().slice(0, 500) || ""
+      }));
+      fs.writeFileSync(path.join(config.diagnosticsPath, "latest.json"), JSON.stringify({
+        capturedAt: new Date().toISOString(), reason, status, screenshot: path.basename(screenshotPath), ...details
+      }, null, 2));
     } catch {
       // A diagnostic screenshot must never hide the original monitoring error.
     }

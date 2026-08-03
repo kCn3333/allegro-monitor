@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import formbody from "@fastify/formbody";
 import Fastify from "fastify";
 import { assertAllegroUrl } from "./allegro.js";
@@ -22,6 +24,20 @@ app.addHook("onRequest", async (request, reply) => {
 });
 
 app.get("/health", async () => ({ status: "ok" }));
+app.get("/diagnostics/latest", async (_request, reply) => {
+  const reportPath = path.join(config.diagnosticsPath, "latest.json");
+  if (!fs.existsSync(reportPath)) return reply.code(404).send({ error: "Brak diagnostyki" });
+  return reply.type("application/json; charset=utf-8").send(fs.readFileSync(reportPath));
+});
+app.get("/diagnostics/latest.png", async (_request, reply) => {
+  const reportPath = path.join(config.diagnosticsPath, "latest.json");
+  if (!fs.existsSync(reportPath)) return reply.code(404).send("Brak diagnostyki");
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as { screenshot?: string };
+  const filename = path.basename(report.screenshot || "");
+  const screenshotPath = path.join(config.diagnosticsPath, filename);
+  if (!filename || !fs.existsSync(screenshotPath)) return reply.code(404).send("Brak screenshotu");
+  return reply.type("image/png").send(fs.createReadStream(screenshotPath));
+});
 app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderPage(store.listMonitors(), store.recentListings())));
 
 app.post<{ Body: { name?: string; url?: string; intervalMinutes?: string } }>("/monitors", async (request, reply) => {
