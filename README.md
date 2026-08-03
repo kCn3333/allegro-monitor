@@ -5,7 +5,8 @@ Lekka, prywatna aplikacja monitorująca wyniki wyszukiwania Allegro. Pierwsze sp
 ## Funkcje
 
 - kilka niezależnych URL-i wyszukiwania i interwałów;
-- Playwright uruchamiany tylko podczas sprawdzania;
+- pełny Chromium uruchamiany w wirtualnym ekranie tylko podczas sprawdzania;
+- trwały profil przeglądarki zachowujący cookies między sprawdzeniami;
 - SQLite bez osobnego serwera bazy;
 - proste GUI bez frameworka frontendowego;
 - opcjonalne powiadomienia Telegram i Basic Auth;
@@ -45,6 +46,8 @@ docker compose up -d
 Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
 W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_USERNAME` i `APP_PASSWORD`. Opcjonalne `APP_PORT`, `CHECK_TICK_SECONDS` oraz `IMAGE_TAG` mają wartości domyślne odpowiednio `3000`, `30` i `latest`.
+
+Chromium działa w trybie graficznym na wirtualnym ekranie Xvfb. Profil jest przechowywany w wolumenie `allegro-monitor-browser-profile`, a screenshoty stron blokady lub błędów trafiają do katalogu `diagnostics` w wolumenie `allegro-monitor-data`. Ten tryb zwiększa szansę poprawnego załadowania strony, ale nie omija captcha i nie gwarantuje dostępu, jeśli Allegro zablokuje sesję.
 
 ## Deployment
 

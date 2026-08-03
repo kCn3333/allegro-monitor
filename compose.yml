@@ -8,6 +8,9 @@ services:
       HOST: 0.0.0.0
       DATABASE_PATH: /app/data/monitor.sqlite
       CHECK_TICK_SECONDS: ${CHECK_TICK_SECONDS:-30}
+      BROWSER_HEADLESS: "false"
+      BROWSER_PROFILE_PATH: /app/browser-profile
+      DIAGNOSTICS_PATH: /app/data/diagnostics
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?Set TELEGRAM_CHAT_ID in Portainer}
       APP_USERNAME: ${APP_USERNAME:?Set APP_USERNAME in Portainer}
@@ -16,6 +19,7 @@ services:
       - "${APP_PORT:-3000}:${APP_PORT:-3000}"
     volumes:
       - monitor-data:/app/data
+      - browser-profile:/app/browser-profile
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -25,3 +29,5 @@ services:
 volumes:
   monitor-data:
     name: allegro-monitor-data
+  browser-profile:
+    name: allegro-monitor-browser-profile

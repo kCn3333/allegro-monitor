@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import { load } from "cheerio";
-import { chromium, type Browser } from "playwright";
+import { chromium, type BrowserContext, type Page } from "playwright";
+import { config } from "./config.js";
 import type { Listing } from "./types.js";
 
 const OFFER_ID = /(?:oferta\/[^/?#]*-|offerId=)(\d{6,})/i;
@@ -37,38 +40,54 @@ export function parseListings(html: string): Listing[] {
 }
 
 export class AllegroClient {
-  private browser: Browser | null = null;
+  private context: BrowserContext | null = null;
 
   async start(): Promise<void> {
-    this.browser = await chromium.launch({ headless: true });
+    fs.mkdirSync(config.browserProfilePath, { recursive: true });
+    this.context = await chromium.launchPersistentContext(config.browserProfilePath, {
+      headless: config.browserHeadless,
+      locale: "pl-PL",
+      timezoneId: "Europe/Warsaw",
+      viewport: { width: 1365, height: 768 }
+    });
   }
 
   async fetch(url: string): Promise<Listing[]> {
-    if (!this.browser) throw new Error("Przeglądarka nie została uruchomiona");
+    if (!this.context) throw new Error("Przeglądarka nie została uruchomiona");
     assertAllegroUrl(url);
-    const context = await this.browser.newContext({
-      locale: "pl-PL",
-      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/127 Safari/537.36"
-    });
+    const page = await this.context.newPage();
     try {
-      const page = await context.newPage();
       const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-      if (!response || response.status() >= 400) throw new Error(`Allegro odpowiedziało kodem ${response?.status() ?? "brak"}`);
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(6000);
       const html = await page.content();
       if (/captcha-delivery|please enable js|verify you are human/i.test(html)) {
+        await this.saveDiagnostic(page, "captcha");
         throw new Error("Allegro zażądało weryfikacji captcha");
       }
       const listings = parseListings(html);
-      if (listings.length === 0) throw new Error("Nie znaleziono ofert; struktura strony mogła się zmienić");
+      if (listings.length === 0) {
+        await this.saveDiagnostic(page, `http-${response?.status() ?? "unknown"}`);
+        if (!response || response.status() >= 400) throw new Error(`Allegro odpowiedziało kodem ${response?.status() ?? "brak"}`);
+        throw new Error("Nie znaleziono ofert; struktura strony mogła się zmienić");
+      }
       return listings;
     } finally {
-      await context.close();
+      await page.close();
     }
   }
 
   async stop(): Promise<void> {
-    await this.browser?.close();
-    this.browser = null;
+    await this.context?.close();
+    this.context = null;
+  }
+
+  private async saveDiagnostic(page: Page, reason: string): Promise<void> {
+    try {
+      fs.mkdirSync(config.diagnosticsPath, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      await page.screenshot({ path: path.join(config.diagnosticsPath, `${stamp}-${reason}.png`), fullPage: true });
+    } catch {
+      // A diagnostic screenshot must never hide the original monitoring error.
+    }
   }
 }
