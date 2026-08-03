@@ -15,9 +15,13 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:${APP_PORT:-3000}"
     volumes:
-      - ./data:/app/data
+      - monitor-data:/app/data
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     shm_size: 256mb
+
+volumes:
+  monitor-data:
+    name: allegro-monitor-data
