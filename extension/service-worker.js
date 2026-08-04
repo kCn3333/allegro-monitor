@@ -34,11 +34,18 @@ chrome.tabs.onCreated.addListener(schedulePresence);
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => { if (changeInfo.status === "complete" || changeInfo.url) schedulePresence(); });
 
 function normalizeBackend(value) { return value.trim().replace(/\/$/, ""); }
+function isAllegroResultsPage(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.endsWith("allegro.pl")
+      && (url.pathname === "/listing" || url.pathname.startsWith("/kategoria/"));
+  } catch { return false; }
+}
+
 function canonicalSearchUrl(value) {
   try {
     const url = new URL(value);
-    const isSearchPath = url.pathname === "/listing" || url.pathname.startsWith("/kategoria/");
-    if (url.protocol !== "https:" || !url.hostname.endsWith("allegro.pl") || !isSearchPath || !url.searchParams.get("string")) return null;
+    if (!isAllegroResultsPage(value) || !url.searchParams.get("string")) return null;
     url.hash = "";
     url.searchParams.sort();
     return url.toString();
@@ -58,12 +65,36 @@ function searchTerm(value) {
 
 function findMatchingTab(tabs, watch) {
   const wantedTerm = searchTerm(watch.url);
-  const knownTab = tabs.find(tab => tab.id === watch.tabId && tab.url && wantedTerm && searchTerm(tab.url) === wantedTerm);
+  const knownTab = tabs.find(tab => tab.id === watch.tabId && tab.url && isAllegroResultsPage(tab.url)
+    && (!searchTerm(tab.url) || searchTerm(tab.url) === wantedTerm));
   if (knownTab) return knownTab;
   const exact = tabs.find(tab => tab.url && matchesWatch(tab.url, watch.url));
   if (exact) return exact;
   const sameTerm = tabs.filter(tab => tab.url && wantedTerm && searchTerm(tab.url) === wantedTerm && canonicalSearchUrl(tab.url));
   return sameTerm.length === 1 ? sameTerm[0] : null;
+}
+
+async function resolveSearchUrl(tab) {
+  if (canonicalSearchUrl(tab.url)) return tab.url;
+  if (!tab.id || !isAllegroResultsPage(tab.url)) return null;
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const input = document.querySelector('input[name="string"], input[type="search"], input[data-role*="search"], input[placeholder*="Szukaj" i]');
+      const term = input?.value?.trim() || "";
+      const urls = [location.href, document.querySelector('link[rel="canonical"]')?.href,
+        document.querySelector('meta[property="og:url"]')?.content,
+        ...[...document.querySelectorAll('a[href*="string="]')].slice(0, 20).map(anchor => anchor.href)].filter(Boolean);
+      return { term, urls };
+    }
+  }).catch(() => [{ result: null }]);
+  const candidates = result?.urls || [];
+  const matching = candidates.find(value => canonicalSearchUrl(value) && (!result.term || searchTerm(value) === result.term.toLocaleLowerCase("pl")));
+  if (matching) return matching;
+  if (!result?.term) return null;
+  const reconstructed = new URL(tab.url);
+  reconstructed.searchParams.set("string", result.term);
+  return reconstructed.toString();
 }
 async function api(path, options = {}) {
   const { backendUrl, token } = await state();
@@ -90,13 +121,14 @@ async function pair(backendUrl, code) {
 
 async function addCurrentTab(name, intervalMinutes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !canonicalSearchUrl(tab.url)) throw new Error("Otwórz kartę z wynikami wyszukiwania Allegro");
+  const searchUrl = tab ? await resolveSearchUrl(tab) : null;
+  if (!tab?.id || !searchUrl) throw new Error("Otwórz kartę z wynikami wyszukiwania Allegro");
   const created = await api("/api/extension/monitors", {
-    method: "POST", body: JSON.stringify({ name: name.trim() || tab.title || "Allegro", url: tab.url, intervalMinutes })
+    method: "POST", body: JSON.stringify({ name: name.trim() || tab.title || "Allegro", url: searchUrl, intervalMinutes })
   });
   const data = await state();
-  const watched = data.watched.filter(item => item.monitorId !== created.id && item.url !== tab.url);
-  watched.push({ monitorId: created.id, tabId: tab.id, url: tab.url, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, lastCheckNewCount: created.lastCheckNewCount || 0, nextCheckAt: Date.now() });
+  const watched = data.watched.filter(item => item.monitorId !== created.id && item.url !== searchUrl);
+  watched.push({ monitorId: created.id, tabId: tab.id, url: searchUrl, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, lastCheckNewCount: created.lastCheckNewCount || 0, nextCheckAt: Date.now() });
   await chrome.storage.local.set({ watched });
   return created;
 }
@@ -229,7 +261,8 @@ async function checkOne(watch) {
   watch.tabId = tab.id;
   await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   const loaded = waitForLoad(tab.id);
-  await chrome.tabs.reload(tab.id);
+  if (canonicalSearchUrl(tab.url)) await chrome.tabs.reload(tab.id);
+  else await chrome.tabs.update(tab.id, { url: watch.url });
   await loaded;
   const result = await readListings(tab.id);
   if (!result) throw new Error("Nie udało się odczytać zawartości karty Allegro");
