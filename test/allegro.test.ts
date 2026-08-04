@@ -6,9 +6,16 @@ test("accepts an Allegro listing URL", () => {
   assert.equal(assertAllegroUrl("https://allegro.pl/listing?string=yukio%20mishima").hostname, "allegro.pl");
 });
 
+test("accepts an Allegro category search URL", () => {
+  const url = assertAllegroUrl("https://allegro.pl/kategoria/ksiazki-7?order=n&string=yukio%20mishima");
+  assert.equal(url.pathname, "/kategoria/ksiazki-7");
+  assert.equal(url.searchParams.get("string"), "yukio mishima");
+});
+
 test("rejects external and non-listing URLs", () => {
   assert.throws(() => assertAllegroUrl("https://example.com/listing"));
   assert.throws(() => assertAllegroUrl("https://allegro.pl/moje-allegro"));
+  assert.throws(() => assertAllegroUrl("https://allegro.pl/listing"));
 });
 
 test("validates results received from the extension", () => {

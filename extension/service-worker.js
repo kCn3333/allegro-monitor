@@ -34,6 +34,37 @@ chrome.tabs.onCreated.addListener(schedulePresence);
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => { if (changeInfo.status === "complete" || changeInfo.url) schedulePresence(); });
 
 function normalizeBackend(value) { return value.trim().replace(/\/$/, ""); }
+function canonicalSearchUrl(value) {
+  try {
+    const url = new URL(value);
+    const isSearchPath = url.pathname === "/listing" || url.pathname.startsWith("/kategoria/");
+    if (url.protocol !== "https:" || !url.hostname.endsWith("allegro.pl") || !isSearchPath || !url.searchParams.get("string")) return null;
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString();
+  } catch { return null; }
+}
+
+function matchesWatch(tabUrl, watchUrl) {
+  const tabCanonical = canonicalSearchUrl(tabUrl);
+  const watchCanonical = canonicalSearchUrl(watchUrl);
+  return Boolean(tabCanonical && watchCanonical && tabCanonical === watchCanonical);
+}
+
+function searchTerm(value) {
+  try { return new URL(value).searchParams.get("string")?.replace(/\s+/g, " ").trim().toLocaleLowerCase("pl") || null; }
+  catch { return null; }
+}
+
+function findMatchingTab(tabs, watch) {
+  const wantedTerm = searchTerm(watch.url);
+  const knownTab = tabs.find(tab => tab.id === watch.tabId && tab.url && wantedTerm && searchTerm(tab.url) === wantedTerm);
+  if (knownTab) return knownTab;
+  const exact = tabs.find(tab => tab.url && matchesWatch(tab.url, watch.url));
+  if (exact) return exact;
+  const sameTerm = tabs.filter(tab => tab.url && wantedTerm && searchTerm(tab.url) === wantedTerm && canonicalSearchUrl(tab.url));
+  return sameTerm.length === 1 ? sameTerm[0] : null;
+}
 async function api(path, options = {}) {
   const { backendUrl, token } = await state();
   if (!token) throw new Error("Rozszerzenie nie jest sparowane");
@@ -59,7 +90,7 @@ async function pair(backendUrl, code) {
 
 async function addCurrentTab(name, intervalMinutes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url?.startsWith("https://allegro.pl/listing")) throw new Error("Otwórz kartę z wynikami wyszukiwania Allegro");
+  if (!tab?.id || !canonicalSearchUrl(tab.url)) throw new Error("Otwórz kartę z wynikami wyszukiwania Allegro");
   const created = await api("/api/extension/monitors", {
     method: "POST", body: JSON.stringify({ name: name.trim() || tab.title || "Allegro", url: tab.url, intervalMinutes })
   });
@@ -71,12 +102,8 @@ async function addCurrentTab(name, intervalMinutes) {
 }
 
 async function findTab(watch) {
-  if (watch.tabId) {
-    const tab = await chrome.tabs.get(watch.tabId).catch(() => null);
-    if (tab?.url === watch.url) return tab;
-  }
   const tabs = await chrome.tabs.query({});
-  return tabs.find(tab => tab.url === watch.url) || null;
+  return findMatchingTab(tabs, watch);
 }
 
 async function reportPresence() {
@@ -84,8 +111,7 @@ async function reportPresence() {
   if (!data.token || !data.watched.length) return;
   const tabs = await chrome.tabs.query({});
   const monitors = data.watched.map(watch => {
-    const tab = tabs.find(candidate => candidate.id === watch.tabId && candidate.url === watch.url)
-      || tabs.find(candidate => candidate.url === watch.url);
+    const tab = findMatchingTab(tabs, watch);
     watch.tabId = tab?.id || null;
     watch.tabOpen = Boolean(tab);
     return { id: watch.monitorId, open: watch.tabOpen };

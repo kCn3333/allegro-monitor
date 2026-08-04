@@ -5,7 +5,10 @@ export function assertAllegroUrl(raw: string): URL {
   if (url.protocol !== "https:" || !/(^|\.)allegro\.pl$/i.test(url.hostname)) {
     throw new Error("Dozwolone są wyłącznie adresy HTTPS w domenie allegro.pl");
   }
-  if (!url.pathname.startsWith("/listing")) throw new Error("Adres musi prowadzić do wyszukiwania Allegro (/listing)");
+  const isSearchPath = url.pathname === "/listing" || url.pathname.startsWith("/kategoria/");
+  if (!isSearchPath || !url.searchParams.get("string")) throw new Error("Adres musi prowadzić do wyników wyszukiwania Allegro");
+  url.hash = "";
+  url.searchParams.sort();
   return url;
 }
 
