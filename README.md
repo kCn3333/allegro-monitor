@@ -2,6 +2,8 @@
 
 Lekka, prywatna aplikacja monitorująca wyniki wyszukiwania Allegro. Pierwsze sprawdzenie zapamiętuje bieżące oferty; następne wysyłają powiadomienia tylko dla nowych pozycji.
 
+Zmiany w kolejnych wersjach opisuje [historia wydań](CHANGELOG.md).
+
 ## Funkcje
 
 - kilka niezależnych URL-i wyszukiwania i interwałów;
