@@ -37,6 +37,28 @@ test("counts new listings and removes entries missing from consecutive checks", 
   }
 });
 
+test("excludes one exact product without treating it as new after restore", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-exclusion-"));
+  const store = new Store(path.join(directory, "test.sqlite"));
+  try {
+    const id = store.createMonitor("Test", "https://allegro.pl/listing?string=test", 5);
+    const product = offer("product:25a97dc8-fdcd-41fd-b9de-7a7247d83e95");
+    store.saveCheck(store.getMonitor(id)!, [product]);
+    assert.equal(store.addExclusion(id, product.externalId), true);
+    assert.equal(store.getMonitor(id)?.currentListingsCount, 0);
+    assert.equal(store.listExclusions()[0]?.externalId, product.externalId);
+    assert.equal(store.recentListings().length, 0);
+    assert.deepEqual(store.saveCheck(store.getMonitor(id)!, [product]), []);
+
+    store.removeExclusion(id, product.externalId);
+    assert.equal(store.recentListings()[0]?.externalId, product.externalId);
+    assert.deepEqual(store.saveCheck(store.getMonitor(id)!, [product]), []);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
 test("migrates the previous database schema without losing data", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-legacy-"));
   const databasePath = path.join(directory, "legacy.sqlite");

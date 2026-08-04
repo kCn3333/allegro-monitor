@@ -54,6 +54,8 @@ SQLite przechowuje konfigurację monitorów, skróty tokenów sparowanych rozsze
 
 Pozycja nadal widoczna w wynikach pozostaje punktem odniesienia. Pozycja nieobecna przez `LISTING_RETENTION_CHECKS` kolejnych udanych odczytów jest usuwana, domyślnie po pięciu. Dzięki temu baza obejmuje głównie aktualny zestaw wyników i krótki bufor, zamiast rosnąć bez ograniczeń. Licznik `+N` monitora jest sumą nowych pozycji wykrytych od utworzenia punktu odniesienia i nie maleje podczas retencji.
 
+Z panelu można wykluczyć dokładny produkt lub ofertę. Reguła używa pełnego identyfikatora Allegro (`product:UUID` albo `offer:ID`), a nie fragmentu tytułu, dlatego nie ukrywa innych wydań o podobnej nazwie. Wykluczenia są widoczne na karcie monitora i można je w każdej chwili cofnąć bez wygenerowania fałszywego powiadomienia.
+
 ## Rozszerzenie Vivaldi
 
 Po uruchomieniu serwera przejdź do `/extension`, pobierz ZIP i postępuj według instrukcji. Rozszerzenie paruje się z serwerem jednorazowym kodem ważnym przez 10 minut. Następnie otwórz wyszukiwanie Allegro i wybierz w popupie **Monitoruj tę kartę**.

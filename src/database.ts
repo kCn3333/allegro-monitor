@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Listing, Monitor } from "./types.js";
+import type { Listing, Monitor, MonitorExclusion } from "./types.js";
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -49,6 +49,13 @@ export class Store {
     `);
     this.migrateLegacySchema();
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS monitor_exclusions (
+        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+        external_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(monitor_id, external_id)
+      );
       CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
@@ -106,7 +113,10 @@ export class Store {
   listMonitors(): Monitor[] {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
+      FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
   }
 
   createMonitor(name: string, url: string, intervalMinutes: number): number {
@@ -119,13 +129,19 @@ export class Store {
   getMonitor(id: number): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
+      FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
   }
 
   findMonitorByUrl(url: string): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
+      FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
   }
 
   updateMonitorSettings(id: number, name: string, intervalMinutes: number): void {
@@ -148,13 +164,16 @@ export class Store {
   dueMonitors(): Monitor[] {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount FROM monitors
       WHERE enabled = 1 AND next_check_at <= ? ORDER BY next_check_at LIMIT 10`)
       .all(new Date().toISOString()) as unknown as Monitor[];
   }
 
   saveCheck(monitor: Monitor, listings: Listing[]): Listing[] {
     const now = new Date().toISOString();
+    const excluded = new Set((this.db.prepare("SELECT external_id externalId FROM monitor_exclusions WHERE monitor_id=?").all(monitor.id) as Array<{ externalId: string }>).map(item => item.externalId));
     const insert = this.db.prepare(`INSERT OR IGNORE INTO listings
       (monitor_id,external_id,title,url,price,image_url,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?)`);
     const markSeen = this.db.prepare(`UPDATE listings SET title=?,url=?,price=?,image_url=?,last_seen_at=?,missing_checks=0
@@ -167,7 +186,7 @@ export class Store {
         const result = insert.run(monitor.id, listing.externalId, listing.title, listing.url,
           listing.price, listing.imageUrl, now, now);
         markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
-        if (result.changes > 0 && monitor.initialized === 1) fresh.push(listing);
+        if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) fresh.push(listing);
       }
       this.db.prepare("DELETE FROM listings WHERE monitor_id=? AND missing_checks>=?").run(monitor.id, this.listingRetentionChecks);
       const next = new Date(Date.now() + monitor.intervalMinutes * 60_000).toISOString();
@@ -179,6 +198,30 @@ export class Store {
       throw error;
     }
     return fresh;
+  }
+
+  addExclusion(monitorId: number, externalId: string): boolean {
+    const listing = this.db.prepare("SELECT title FROM listings WHERE monitor_id=? AND external_id=?").get(monitorId, externalId) as { title: string } | undefined;
+    if (!listing) return false;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("INSERT OR IGNORE INTO monitor_exclusions(monitor_id,external_id,title,created_at) VALUES(?,?,?,?)")
+        .run(monitorId, externalId, listing.title, new Date().toISOString());
+      this.db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  removeExclusion(monitorId: number, externalId: string): void {
+    this.db.prepare("DELETE FROM monitor_exclusions WHERE monitor_id=? AND external_id=?").run(monitorId, externalId);
+  }
+
+  listExclusions(): MonitorExclusion[] {
+    return this.db.prepare(`SELECT monitor_id monitorId,external_id externalId,title,created_at createdAt
+      FROM monitor_exclusions ORDER BY created_at DESC`).all() as unknown as MonitorExclusion[];
   }
 
   saveError(monitor: Monitor, error: unknown): void {
@@ -200,10 +243,11 @@ export class Store {
     return result.changes > 0;
   }
 
-  recentListings(limit = 50): Array<Listing & { monitorName: string; firstSeenAt: string }> {
-    return this.db.prepare(`SELECT l.external_id externalId,l.title,l.url,l.price,l.image_url imageUrl,
+  recentListings(limit = 50): Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string }> {
+    return this.db.prepare(`SELECT l.external_id externalId,l.title,l.url,l.price,l.image_url imageUrl,l.monitor_id monitorId,
       l.first_seen_at firstSeenAt,m.name monitorName FROM listings l JOIN monitors m ON m.id=l.monitor_id
-      ORDER BY l.first_seen_at DESC LIMIT ?`).all(limit) as unknown as Array<Listing & { monitorName: string; firstSeenAt: string }>;
+      WHERE NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)
+      ORDER BY l.first_seen_at DESC LIMIT ?`).all(limit) as unknown as Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string }>;
   }
 
   close(): void { this.db.close(); }

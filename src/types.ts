@@ -18,4 +18,13 @@ export interface Monitor {
   lastError: string | null;
   createdAt: string;
   newListingsCount: number;
+  currentListingsCount: number;
+  excludedListingsCount: number;
+}
+
+export interface MonitorExclusion {
+  monitorId: number;
+  externalId: string;
+  title: string;
+  createdAt: string;
 }
