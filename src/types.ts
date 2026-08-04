@@ -18,6 +18,7 @@ export interface Monitor {
   lastError: string | null;
   createdAt: string;
   newListingsCount: number;
+  lastCheckNewCount: number;
   currentListingsCount: number;
   excludedListingsCount: number;
   activeClientsCount: number;

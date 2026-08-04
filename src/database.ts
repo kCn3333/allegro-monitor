@@ -24,7 +24,8 @@ export class Store {
         next_check_at TEXT NOT NULL,
         last_error TEXT,
         created_at TEXT NOT NULL,
-        new_listings_count INTEGER NOT NULL DEFAULT 0
+        new_listings_count INTEGER NOT NULL DEFAULT 0,
+        last_check_new_count INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS listings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +49,7 @@ export class Store {
       );
     `);
     this.migrateLegacySchema();
+    this.ensureCurrentColumns();
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS monitor_exclusions (
         monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
@@ -90,7 +92,8 @@ export class Store {
           next_check_at TEXT NOT NULL,
           last_error TEXT,
           created_at TEXT NOT NULL,
-          new_listings_count INTEGER NOT NULL DEFAULT 0
+          new_listings_count INTEGER NOT NULL DEFAULT 0,
+          last_check_new_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE listings (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,11 +120,16 @@ export class Store {
     }
   }
 
+  private ensureCurrentColumns(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(monitors)").all() as Array<{ name: string }>).map(column => column.name));
+    if (!columns.has("last_check_new_count")) this.db.exec("ALTER TABLE monitors ADD COLUMN last_check_new_count INTEGER NOT NULL DEFAULT 0");
+  }
+
   listMonitors(): Monitor[] {
     const activeSince = new Date(Date.now() - 3 * 60_000).toISOString();
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
       (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
       (SELECT COUNT(*) FROM monitor_clients mc WHERE mc.monitor_id=monitors.id AND mc.tab_open=1 AND mc.last_seen_at>=?) activeClientsCount
@@ -138,7 +146,7 @@ export class Store {
   getMonitor(id: number): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
       (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
       0 activeClientsCount
@@ -148,7 +156,7 @@ export class Store {
   findMonitorByUrl(url: string): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
       (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
       0 activeClientsCount
@@ -175,7 +183,7 @@ export class Store {
   dueMonitors(): Monitor[] {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount,
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
       (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
       0 activeClientsCount FROM monitors
@@ -203,7 +211,7 @@ export class Store {
       this.db.prepare("DELETE FROM listings WHERE monitor_id=? AND missing_checks>=?").run(monitor.id, this.listingRetentionChecks);
       const next = new Date(Date.now() + monitor.intervalMinutes * 60_000).toISOString();
       this.db.prepare(`UPDATE monitors SET initialized=1,last_checked_at=?,next_check_at=?,last_error=NULL,
-        new_listings_count=new_listings_count+? WHERE id=?`).run(now, next, fresh.length, monitor.id);
+        new_listings_count=new_listings_count+?,last_check_new_count=? WHERE id=?`).run(now, next, fresh.length, fresh.length, monitor.id);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -240,7 +248,7 @@ export class Store {
     const now = new Date();
     const next = new Date(now.getTime() + Math.max(monitor.intervalMinutes, 10) * 60_000).toISOString();
     const message = error instanceof Error ? error.message : String(error);
-    this.db.prepare("UPDATE monitors SET last_checked_at=?,next_check_at=?,last_error=? WHERE id=?")
+    this.db.prepare("UPDATE monitors SET last_checked_at=?,next_check_at=?,last_error=?,last_check_new_count=0 WHERE id=?")
       .run(now.toISOString(), next, message.slice(0, 1000), monitor.id);
   }
 
@@ -271,11 +279,13 @@ export class Store {
     this.db.prepare("DELETE FROM monitor_clients WHERE monitor_id=? AND client_id=?").run(monitorId, clientId);
   }
 
-  recentListings(limit = 50): Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string }> {
+  recentListings(limit = 50): Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }> {
     return this.db.prepare(`SELECT l.external_id externalId,l.title,l.url,l.price,l.image_url imageUrl,l.monitor_id monitorId,
-      l.first_seen_at firstSeenAt,m.name monitorName FROM listings l JOIN monitors m ON m.id=l.monitor_id
+      l.first_seen_at firstSeenAt,m.name monitorName,
+      CASE WHEN m.last_check_new_count>0 AND l.first_seen_at=m.last_checked_at THEN 1 ELSE 0 END fromLatestCheck
+      FROM listings l JOIN monitors m ON m.id=l.monitor_id
       WHERE NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)
-      ORDER BY l.first_seen_at DESC LIMIT ?`).all(limit) as unknown as Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string }>;
+      ORDER BY l.first_seen_at DESC LIMIT ?`).all(limit) as unknown as Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>;
   }
 
   close(): void { this.db.close(); }

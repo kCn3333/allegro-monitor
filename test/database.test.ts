@@ -25,9 +25,14 @@ test("counts new listings and removes entries missing from consecutive checks", 
     monitor = store.getMonitor(id)!;
     assert.equal(store.saveCheck(monitor, [offer("offer:111111"), offer("offer:222222")]).length, 1);
     assert.equal(store.getMonitor(id)?.newListingsCount, 1);
+    assert.equal(store.getMonitor(id)?.lastCheckNewCount, 1);
+    assert.equal(store.recentListings().find(item => item.externalId === "offer:222222")?.fromLatestCheck, 1);
+    assert.equal(store.recentListings().find(item => item.externalId === "offer:111111")?.fromLatestCheck, 0);
 
     monitor = store.getMonitor(id)!;
     store.saveCheck(monitor, [offer("offer:111111")]);
+    assert.equal(store.getMonitor(id)?.lastCheckNewCount, 0);
+    assert.equal(store.recentListings().some(item => item.fromLatestCheck === 1), false);
     monitor = store.getMonitor(id)!;
     store.saveCheck(monitor, [offer("offer:111111")]);
     assert.equal(store.recentListings().some(item => item.externalId === "offer:222222"), false);
@@ -105,6 +110,27 @@ test("migrates the previous database schema without losing data", () => {
     store.updateMonitorSettings(1, "Stary", 1);
     assert.equal(store.getMonitor(1)?.intervalMinutes, 1);
     assert.equal(store.recentListings()[0]?.externalId, "offer:123456");
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
+test("adds the latest-check counter to an existing current database", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-current-"));
+  const databasePath = path.join(directory, "current.sqlite");
+  const current = new DatabaseSync(databasePath);
+  current.exec(`
+    CREATE TABLE monitors (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,url TEXT NOT NULL,interval_minutes INTEGER NOT NULL DEFAULT 5 CHECK(interval_minutes >= 1),enabled INTEGER NOT NULL DEFAULT 1,initialized INTEGER NOT NULL DEFAULT 0,last_checked_at TEXT,next_check_at TEXT NOT NULL,last_error TEXT,created_at TEXT NOT NULL,new_listings_count INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE listings (id INTEGER PRIMARY KEY AUTOINCREMENT,monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,external_id TEXT NOT NULL,title TEXT NOT NULL,url TEXT NOT NULL,price TEXT,image_url TEXT,first_seen_at TEXT NOT NULL,last_seen_at TEXT NOT NULL,missing_checks INTEGER NOT NULL DEFAULT 0,UNIQUE(monitor_id,external_id));
+    INSERT INTO monitors(name,url,next_check_at,created_at,new_listings_count) VALUES('Obecny','https://allegro.pl/listing?string=test','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',7);
+  `);
+  current.close();
+
+  const store = new Store(databasePath);
+  try {
+    assert.equal(store.getMonitor(1)?.newListingsCount, 7);
+    assert.equal(store.getMonitor(1)?.lastCheckNewCount, 0);
   } finally {
     store.close();
     fs.rmSync(directory, { recursive: true });

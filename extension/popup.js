@@ -10,7 +10,7 @@ async function render() {
   $("#connection").textContent = data.token ? "Połączono" : "Brak połączenia";
   $("#watched-section").hidden = !data.token || !data.watched.length;
   $("#new-section").hidden = !data.unread.length;
-  $("#watched").innerHTML = data.watched.map(item => `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.newListingsCount) > 0 ? `<span class="new-count">+${Number(item.newListingsCount)}</span>` : ""}</div><span class="tab-status ${item.tabOpen === false ? "closed" : "open"}">${item.tabOpen === false ? "Karta zamknięta" : "Karta otwarta"}</span><span> · co ${item.intervalMinutes} min</span><div class="actions"><button data-check="${item.monitorId}">Sprawdź teraz</button><button class="remove" data-remove="${item.monitorId}">Usuń</button></div></div>`).join("");
+  $("#watched").innerHTML = data.watched.map(item => `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${item.tabOpen === false ? "closed" : "open"}">${item.tabOpen === false ? "Karta zamknięta" : "Karta otwarta"}</span><span> · co ${item.intervalMinutes} min</span><div class="actions"><button data-check="${item.monitorId}">Sprawdź teraz</button><button class="remove" data-remove="${item.monitorId}">Usuń</button></div></div>`).join("");
   $("#unread").innerHTML = data.unread.map(item => `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><span>${esc(item.monitorName)} · ${esc(item.price || "Cena nieznana")}</span></div>`).join("");
 }
 

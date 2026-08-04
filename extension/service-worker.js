@@ -65,7 +65,7 @@ async function addCurrentTab(name, intervalMinutes) {
   });
   const data = await state();
   const watched = data.watched.filter(item => item.monitorId !== created.id && item.url !== tab.url);
-  watched.push({ monitorId: created.id, tabId: tab.id, url: tab.url, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, nextCheckAt: Date.now() });
+  watched.push({ monitorId: created.id, tabId: tab.id, url: tab.url, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, lastCheckNewCount: created.lastCheckNewCount || 0, nextCheckAt: Date.now() });
   await chrome.storage.local.set({ watched });
   return created;
 }
@@ -218,6 +218,7 @@ async function checkOne(watch) {
   const response = await api(`/api/extension/monitors/${watch.monitorId}/results`, { method: "POST", body: JSON.stringify({ listings: result.listings }) });
   const fresh = response.newListings || [];
   watch.newListingsCount = Number(response.newListingsCount) || 0;
+  watch.lastCheckNewCount = Number(response.lastCheckNewCount) || 0;
   if (fresh.length) {
     const current = await state();
     const unread = [...fresh.map(item => ({ ...item, monitorName: watch.name, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
