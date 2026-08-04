@@ -84,6 +84,23 @@ function extractListings() {
     return { blocked: true, listings: [] };
   }
   const found = new Map();
+  function findProductImage(card, anchor) {
+    const candidates = [...new Set([...(anchor?.querySelectorAll("img") || []), ...(card?.querySelectorAll("img") || [])])];
+    return candidates.map(image => {
+      const src = image.currentSrc || image.src || "";
+      const description = `${image.alt || ""} ${image.getAttribute("aria-label") || ""} ${image.className || ""} ${src}`;
+      if (!src || /^data:/i.test(src) || /\.svg(?:[?#]|$)|serce|heart|favorite|favourite|polub|ulubion|smart|logo|icon/i.test(description)) return null;
+      const width = image.naturalWidth || image.width || Number(image.getAttribute("width")) || 0;
+      const height = image.naturalHeight || image.height || Number(image.getAttribute("height")) || 0;
+      if (width > 0 && height > 0 && width <= 80 && height <= 80) return null;
+      let score = Math.min(width * height, 1_000_000);
+      if (/allegroimg\.com/i.test(src)) score += 2_000_000;
+      if (anchor?.contains(image)) score += 500_000;
+      if (image.closest("picture")) score += 100_000;
+      if (image.alt?.trim()) score += 10_000;
+      return { image, score };
+    }).filter(Boolean).sort((left, right) => right.score - left.score)[0]?.image || null;
+  }
   const anchors = [...document.querySelectorAll("a[href]")];
   const offerAnchors = anchors.filter(anchor => {
     try {
@@ -101,7 +118,7 @@ function extractListings() {
     if (!id || found.has(id)) continue;
     const card = anchor.closest("article") || anchor.closest('[data-box-name="items-v3"] > div') || anchor.closest('[data-box-name]') || anchor.closest("section") || anchor.parentElement;
     const heading = card?.querySelector("h2, h3") || anchor.querySelector("h2, h3");
-    const image = card?.querySelector("img") || anchor.querySelector("img");
+    const image = findProductImage(card, anchor);
     const title = (anchor.getAttribute("title") || anchor.getAttribute("aria-label") || heading?.textContent || image?.getAttribute("alt") || anchor.textContent || "").replace(/\s+/g, " ").trim();
     if (!title || /^przejdź|^przejdz$/i.test(title)) continue;
     const cardText = (card?.textContent || "").replace(/\s+/g, " ");
