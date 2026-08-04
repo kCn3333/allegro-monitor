@@ -1,6 +1,7 @@
 const ALARM = "allegro-monitor-tick";
 const DEFAULT_BACKEND = "https://allegro-monitor.kcn333.com";
 let checking = false;
+let presenceTimer = null;
 
 async function state() {
   return chrome.storage.local.get({ backendUrl: DEFAULT_BACKEND, token: "", watched: [], unread: [] });
@@ -18,9 +19,19 @@ async function updateActionBadge() {
   await chrome.action.setBadgeText({ text: unread.length ? (unread.length > 99 ? "+99" : `+${unread.length}`) : "" });
 }
 
-chrome.runtime.onInstalled.addListener(ensureAlarm);
-chrome.runtime.onStartup.addListener(ensureAlarm);
-chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === ALARM) void checkDue(); });
+async function initialize() { await ensureAlarm(); await reportPresence(); }
+chrome.runtime.onInstalled.addListener(() => { void initialize(); });
+chrome.runtime.onStartup.addListener(() => { void initialize(); });
+chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === ALARM) void tick(); });
+
+function schedulePresence() {
+  if (presenceTimer) clearTimeout(presenceTimer);
+  presenceTimer = setTimeout(() => { presenceTimer = null; void reportPresence(); }, 500);
+}
+
+chrome.tabs.onRemoved.addListener(schedulePresence);
+chrome.tabs.onCreated.addListener(schedulePresence);
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => { if (changeInfo.status === "complete" || changeInfo.url) schedulePresence(); });
 
 function normalizeBackend(value) { return value.trim().replace(/\/$/, ""); }
 async function api(path, options = {}) {
@@ -62,10 +73,30 @@ async function addCurrentTab(name, intervalMinutes) {
 async function findTab(watch) {
   if (watch.tabId) {
     const tab = await chrome.tabs.get(watch.tabId).catch(() => null);
-    if (tab) return tab;
+    if (tab?.url === watch.url) return tab;
   }
   const tabs = await chrome.tabs.query({});
   return tabs.find(tab => tab.url === watch.url) || null;
+}
+
+async function reportPresence() {
+  const data = await state();
+  if (!data.token || !data.watched.length) return;
+  const tabs = await chrome.tabs.query({});
+  const monitors = data.watched.map(watch => {
+    const tab = tabs.find(candidate => candidate.id === watch.tabId && candidate.url === watch.url)
+      || tabs.find(candidate => candidate.url === watch.url);
+    watch.tabId = tab?.id || null;
+    watch.tabOpen = Boolean(tab);
+    return { id: watch.monitorId, open: watch.tabOpen };
+  });
+  await chrome.storage.local.set({ watched: data.watched });
+  await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => {});
+}
+
+async function tick() {
+  await reportPresence();
+  await checkDue();
 }
 
 function waitForLoad(tabId, timeoutMs = 45000) {
@@ -211,7 +242,8 @@ async function checkDue(forceMonitorId = null) {
       try { await checkOne(watch); }
       catch (error) {
         watch.nextCheckAt = Date.now() + Math.max(watch.intervalMinutes, 10) * 60_000;
-        await api(`/api/extension/monitors/${watch.monitorId}/error`, { method: "POST", body: JSON.stringify({ message: error.message }) }).catch(() => {});
+        if (/jest zamknięta/i.test(error.message)) await reportPresence();
+        else await api(`/api/extension/monitors/${watch.monitorId}/error`, { method: "POST", body: JSON.stringify({ message: error.message }) }).catch(() => {});
         if (/captcha|blokada/i.test(error.message)) break;
       }
       await new Promise(resolve => setTimeout(resolve, 12000 + Math.random() * 10000));
@@ -224,7 +256,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     if (message.type === "pair") return pair(message.backendUrl, message.code);
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
-    if (message.type === "check") { await checkDue(message.monitorId ?? null); return true; }
+    if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "remove") {
       const data = await state();
       await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" });
@@ -237,4 +269,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-void ensureAlarm();
+void initialize();

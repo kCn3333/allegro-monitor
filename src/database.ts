@@ -56,6 +56,13 @@ export class Store {
         created_at TEXT NOT NULL,
         PRIMARY KEY(monitor_id, external_id)
       );
+      CREATE TABLE IF NOT EXISTS monitor_clients (
+        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+        client_id INTEGER NOT NULL REFERENCES extension_clients(id) ON DELETE CASCADE,
+        tab_open INTEGER NOT NULL DEFAULT 0,
+        last_seen_at TEXT NOT NULL,
+        PRIMARY KEY(monitor_id, client_id)
+      );
       CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
@@ -111,12 +118,14 @@ export class Store {
   }
 
   listMonitors(): Monitor[] {
+    const activeSince = new Date(Date.now() - 3 * 60_000).toISOString();
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
       last_error lastError, created_at createdAt, new_listings_count newListingsCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
-      FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+      (SELECT COUNT(*) FROM monitor_clients mc WHERE mc.monitor_id=monitors.id AND mc.tab_open=1 AND mc.last_seen_at>=?) activeClientsCount
+      FROM monitors ORDER BY created_at DESC`).all(activeSince) as unknown as Monitor[];
   }
 
   createMonitor(name: string, url: string, intervalMinutes: number): number {
@@ -131,7 +140,8 @@ export class Store {
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
       last_error lastError, created_at createdAt, new_listings_count newListingsCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+      0 activeClientsCount
       FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
   }
 
@@ -140,7 +150,8 @@ export class Store {
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
       last_error lastError, created_at createdAt, new_listings_count newListingsCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+      0 activeClientsCount
       FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
   }
 
@@ -166,7 +177,8 @@ export class Store {
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
       last_error lastError, created_at createdAt, new_listings_count newListingsCount,
       (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount FROM monitors
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+      0 activeClientsCount FROM monitors
       WHERE enabled = 1 AND next_check_at <= ? ORDER BY next_check_at LIMIT 10`)
       .all(new Date().toISOString()) as unknown as Monitor[];
   }
@@ -237,10 +249,26 @@ export class Store {
       .run(name.slice(0, 100), tokenHash, new Date().toISOString());
   }
 
-  touchExtensionClient(tokenHash: string): boolean {
-    const result = this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE token_hash=?")
-      .run(new Date().toISOString(), tokenHash);
-    return result.changes > 0;
+  touchExtensionClient(tokenHash: string): number | null {
+    const client = this.db.prepare("SELECT id FROM extension_clients WHERE token_hash=?").get(tokenHash) as { id: number } | undefined;
+    if (!client) return null;
+    this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), client.id);
+    return client.id;
+  }
+
+  linkMonitorClient(monitorId: number, clientId: number, tabOpen = true): void {
+    this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at) VALUES(?,?,?,?)
+      ON CONFLICT(monitor_id,client_id) DO UPDATE SET tab_open=excluded.tab_open,last_seen_at=excluded.last_seen_at`)
+      .run(monitorId, clientId, tabOpen ? 1 : 0, new Date().toISOString());
+    if (tabOpen) this.db.prepare("UPDATE monitors SET last_error=NULL WHERE id=? AND last_error LIKE 'Karta % jest zamknięta'").run(monitorId);
+  }
+
+  hasMonitorClient(monitorId: number, clientId: number): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM monitor_clients WHERE monitor_id=? AND client_id=?").get(monitorId, clientId));
+  }
+
+  unlinkMonitorClient(monitorId: number, clientId: number): void {
+    this.db.prepare("DELETE FROM monitor_clients WHERE monitor_id=? AND client_id=?").run(monitorId, clientId);
   }
 
   recentListings(limit = 50): Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string }> {

@@ -29,10 +29,11 @@ function validBasic(request: FastifyRequest): boolean {
 }
 
 function tokenHash(token: string): string { return crypto.createHash("sha256").update(token).digest("hex"); }
-function extensionAuth(request: FastifyRequest, reply: FastifyReply): boolean {
+function extensionClientId(request: FastifyRequest, reply: FastifyReply): number | null {
   const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
-  if (!token || token.length > 128 || !store.touchExtensionClient(tokenHash(token))) { void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" }); return false; }
-  return true;
+  const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
+  if (!clientId) { void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" }); return null; }
+  return clientId;
 }
 
 function allowAttempt(key: string, maximum: number, windowMs: number): boolean {
@@ -59,7 +60,7 @@ app.addHook("onRequest", async (request, reply) => {
     "X-Frame-Options": "DENY"
   });
   const path = request.url.split("?", 1)[0];
-  if (path === "/health" || path === "/api/extension/pair" || path?.startsWith("/api/extension/monitors")) return;
+  if (path === "/health" || path === "/api/extension/pair" || path === "/api/extension/presence" || path?.startsWith("/api/extension/monitors")) return;
   if (!validBasic(request)) {
     if (!allowAttempt(`basic:${request.ip}`, 20, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób logowania");
     return reply.header("WWW-Authenticate", 'Basic realm="Allegro Monitor"').code(401).send("Logowanie wymagane");
@@ -99,7 +100,8 @@ app.post<{ Body: { code?: string; name?: string } }>("/api/extension/pair", asyn
 });
 
 app.post<{ Body: { name?: string; url?: string; intervalMinutes?: number } }>("/api/extension/monitors", async (request, reply) => {
-  if (!extensionAuth(request, reply)) return;
+  const clientId = extensionClientId(request, reply);
+  if (!clientId) return;
   const name = request.body?.name?.trim();
   const interval = Number(request.body?.intervalMinutes);
   if (!name || name.length > 100 || !allowedIntervals.has(interval)) return reply.code(400).send("Nieprawidłowe dane monitora");
@@ -107,18 +109,37 @@ app.post<{ Body: { name?: string; url?: string; intervalMinutes?: number } }>("/
   const existing = store.findMonitorByUrl(url.toString());
   if (existing) {
     store.updateMonitorSettings(existing.id, name, interval);
+    store.linkMonitorClient(existing.id, clientId);
     return reply.send({ id: existing.id, name, url: existing.url, intervalMinutes: interval, newListingsCount: existing.newListingsCount });
   }
   const id = store.createMonitor(name, url.toString(), interval);
+  store.linkMonitorClient(id, clientId);
   return reply.send({ id, name, url: url.toString(), intervalMinutes: interval, newListingsCount: 0 });
 });
 
+app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }> } }>("/api/extension/presence", async (request, reply) => {
+  const clientId = extensionClientId(request, reply);
+  if (!clientId) return;
+  const monitors = request.body?.monitors;
+  if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
+  let updated = 0;
+  for (const presence of monitors) {
+    const id = Number(presence?.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
+    store.linkMonitorClient(id, clientId, presence.open === true);
+    updated += 1;
+  }
+  return reply.send({ updated });
+});
+
 app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extension/monitors/:id/results", async (request, reply) => {
-  if (!extensionAuth(request, reply)) return;
+  const clientId = extensionClientId(request, reply);
+  if (!clientId) return;
   const id = parseMonitorId(request.params.id);
   if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
   const monitor = store.getMonitor(id);
-  if (!monitor || !monitor.enabled) return reply.code(404).send("Monitor nie istnieje lub jest wyłączony");
+  if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje, jest wyłączony lub nie należy do tego rozszerzenia");
+  store.linkMonitorClient(id, clientId, true);
   let listings; try { listings = validateListings(request.body?.listings); } catch (error) { return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowe wyniki"); }
   const fresh = store.saveCheck(monitor, listings);
   for (const listing of fresh) {
@@ -129,21 +150,24 @@ app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extensi
 });
 
 app.post<{ Params: { id: string }; Body: { message?: string } }>("/api/extension/monitors/:id/error", async (request, reply) => {
-  if (!extensionAuth(request, reply)) return;
+  const clientId = extensionClientId(request, reply);
+  if (!clientId) return;
   const id = parseMonitorId(request.params.id);
   if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
   const monitor = store.getMonitor(id);
-  if (!monitor) return reply.code(404).send("Monitor nie istnieje");
+  if (!monitor || !store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje lub nie należy do tego rozszerzenia");
   store.saveError(monitor, new Error(String(request.body?.message || "Nieznany błąd rozszerzenia").slice(0, 1000)));
   return reply.send({ saved: true });
 });
 
 app.delete<{ Params: { id: string } }>("/api/extension/monitors/:id", async (request, reply) => {
-  if (!extensionAuth(request, reply)) return;
+  const clientId = extensionClientId(request, reply);
+  if (!clientId) return;
   const id = parseMonitorId(request.params.id);
   if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-  store.deleteMonitor(id);
-  return reply.send({ deleted: true });
+  if (!store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie należy do tego rozszerzenia");
+  store.unlinkMonitorClient(id, clientId);
+  return reply.send({ detached: true });
 });
 
 app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:id/exclusions", async (request, reply) => {

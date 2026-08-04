@@ -20,6 +20,7 @@ export interface Monitor {
   newListingsCount: number;
   currentListingsCount: number;
   excludedListingsCount: number;
+  activeClientsCount: number;
 }
 
 export interface MonitorExclusion {

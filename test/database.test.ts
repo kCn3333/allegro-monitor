@@ -59,6 +59,32 @@ test("excludes one exact product without treating it as new after restore", () =
   }
 });
 
+test("keeps a shared monitor active while another extension still has its tab open", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-presence-"));
+  const store = new Store(path.join(directory, "test.sqlite"));
+  try {
+    const monitorId = store.createMonitor("Wspólny", "https://allegro.pl/listing?string=test", 5);
+    store.addExtensionClient("Vivaldi 1", "hash-1");
+    store.addExtensionClient("Vivaldi 2", "hash-2");
+    const firstClient = store.touchExtensionClient("hash-1")!;
+    const secondClient = store.touchExtensionClient("hash-2")!;
+    store.linkMonitorClient(monitorId, firstClient, true);
+    store.linkMonitorClient(monitorId, secondClient, true);
+    assert.equal(store.listMonitors()[0]?.activeClientsCount, 2);
+
+    store.linkMonitorClient(monitorId, firstClient, false);
+    assert.equal(store.listMonitors()[0]?.activeClientsCount, 1);
+    store.unlinkMonitorClient(monitorId, firstClient);
+    assert.ok(store.getMonitor(monitorId));
+    store.unlinkMonitorClient(monitorId, secondClient);
+    assert.ok(store.getMonitor(monitorId));
+    assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
 test("migrates the previous database schema without losing data", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-legacy-"));
   const databasePath = path.join(directory, "legacy.sqlite");

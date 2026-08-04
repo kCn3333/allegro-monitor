@@ -21,7 +21,8 @@ function queryLabel(url: string): string {
 
 function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
   const state = !monitor.enabled ? { label: "Wstrzymany", className: "paused" }
-    : monitor.lastError ? { label: "Wymaga uwagi", className: "failed" }
+    : monitor.activeClientsCount === 0 ? { label: "Brak otwartej karty", className: "paused" }
+      : monitor.lastError ? { label: "Wymaga uwagi", className: "failed" }
       : monitor.initialized ? { label: "Działa", className: "healthy" }
         : { label: "Pierwsze sprawdzenie", className: "waiting" };
 
@@ -37,6 +38,7 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
       <div><dt>Śledzone pozycje</dt><dd>${monitor.currentListingsCount}</dd></div>
       <div><dt>Wykryte nowości</dt><dd>${monitor.newListingsCount}</dd></div>
       <div><dt>Wykluczenia</dt><dd>${monitor.excludedListingsCount}</dd></div>
+      <div><dt>Aktywne urządzenia</dt><dd>${monitor.activeClientsCount}</dd></div>
       <div><dt>Ostatnia próba</dt><dd>${date(monitor.lastCheckedAt)}</dd></div>
       <div><dt>Monitor dodany</dt><dd>${day(monitor.createdAt)}</dd></div>
     </dl>
