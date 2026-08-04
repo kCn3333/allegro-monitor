@@ -17,6 +17,7 @@
 body { margin:0; width:390px; max-height:600px; background:var(--bg); color:var(--text); }
 main { padding:18px; }
 header, .section-title, .watch-head { display:flex; align-items:center; justify-content:space-between; }
+.section-buttons { display:flex; align-items:center; gap:10px; }
 .watch-head { gap:8px; }
 h1 { font-size:18px; margin:0; }
 header p { font-size:11px; color:var(--muted); margin:1px 0; }
@@ -34,7 +35,7 @@ button { width:100%; background:var(--brand); border-color:var(--brand); color:#
 .new-count { flex:0 0 auto; border-radius:99px; padding:3px 7px; background:var(--green-soft); color:var(--green)!important; font-weight:800; }
 .tab-status.open { color:var(--green); }
 .tab-status.closed { color:#d43b32; }
-.actions { display:flex; gap:6px; margin-top:7px; }
+.actions { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:7px; }
 .actions button { padding:5px; font-size:11px; }
 .actions .remove { background:transparent; color:#d43b32; border-color:var(--line); }
 #message.error { color:#d43b32; }

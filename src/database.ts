@@ -256,9 +256,10 @@ export class Store {
       .run(now.toISOString(), next, message.slice(0, 1000), monitor.id);
   }
 
-  addExtensionClient(name: string, tokenHash: string): void {
-    this.db.prepare("INSERT INTO extension_clients(name,token_hash,created_at) VALUES(?,?,?)")
+  addExtensionClient(name: string, tokenHash: string): number {
+    const result = this.db.prepare("INSERT INTO extension_clients(name,token_hash,created_at) VALUES(?,?,?)")
       .run(name.slice(0, 100), tokenHash, new Date().toISOString());
+    return Number(result.lastInsertRowid);
   }
 
   touchExtensionClient(tokenHash: string): number | null {
@@ -273,6 +274,22 @@ export class Store {
       ON CONFLICT(monitor_id,client_id) DO UPDATE SET tab_open=excluded.tab_open,last_seen_at=excluded.last_seen_at`)
       .run(monitorId, clientId, tabOpen ? 1 : 0, new Date().toISOString());
     if (tabOpen) this.db.prepare("UPDATE monitors SET last_error=NULL WHERE id=? AND last_error LIKE 'Karta % jest zamknięta'").run(monitorId);
+  }
+
+  linkClientToAllMonitors(clientId: number): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT OR IGNORE INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at)
+      SELECT id,?,0,? FROM monitors`).run(clientId, now);
+  }
+
+  linkMonitorToAllClients(monitorId: number, openClientId: number): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT OR IGNORE INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at)
+      SELECT ?,id,CASE WHEN id=? THEN 1 ELSE 0 END,? FROM extension_clients`).run(monitorId, openClientId, now);
+  }
+
+  listMonitorsForClient(clientId: number): Monitor[] {
+    return this.listMonitors().filter(monitor => this.hasMonitorClient(monitor.id, clientId));
   }
 
   hasMonitorClient(monitorId: number, clientId: number): boolean {

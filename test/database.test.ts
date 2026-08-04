@@ -73,9 +73,11 @@ test("keeps a shared monitor active while another extension still has its tab op
     store.addExtensionClient("Vivaldi 2", "hash-2");
     const firstClient = store.touchExtensionClient("hash-1")!;
     const secondClient = store.touchExtensionClient("hash-2")!;
-    store.linkMonitorClient(monitorId, firstClient, true);
+    store.linkMonitorToAllClients(monitorId, firstClient);
     store.linkMonitorClient(monitorId, secondClient, true);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 2);
+    assert.equal(store.listMonitorsForClient(firstClient).length, 1);
+    assert.equal(store.listMonitorsForClient(secondClient).length, 1);
     store.renameMonitor(monitorId, "Nowa nazwa");
     assert.equal(store.getMonitor(monitorId)?.name, "Nowa nazwa");
 
@@ -85,6 +87,21 @@ test("keeps a shared monitor active while another extension still has its tab op
     assert.ok(store.getMonitor(monitorId));
     store.unlinkMonitorClient(monitorId, secondClient);
     assert.ok(store.getMonitor(monitorId));
+    assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
+test("links an extension paired later to all existing monitors", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-late-client-"));
+  const store = new Store(path.join(directory, "test.sqlite"));
+  try {
+    store.createMonitor("Istniejący", "https://allegro.pl/listing?string=test", 5);
+    const clientId = store.addExtensionClient("Nowy Vivaldi", "hash-late");
+    store.linkClientToAllMonitors(clientId);
+    assert.equal(store.listMonitorsForClient(clientId).length, 1);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
   } finally {
     store.close();

@@ -140,7 +140,7 @@ async function findTab(watch) {
 
 async function reportPresence() {
   const data = await state();
-  if (!data.token || !data.watched.length) return;
+  if (!data.token) return null;
   const tabs = await chrome.tabs.query({});
   const monitors = data.watched.map(watch => {
     const tab = findMatchingTab(tabs, watch);
@@ -149,15 +149,19 @@ async function reportPresence() {
     return { id: watch.monitorId, open: watch.tabOpen };
   });
   const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => null);
-  for (const watch of data.watched) {
-    const synchronized = response?.monitors?.find(monitor => monitor.id === watch.monitorId);
-    if (!synchronized) continue;
-    watch.name = synchronized.name;
-    watch.intervalMinutes = synchronized.intervalMinutes;
-    watch.newListingsCount = synchronized.newListingsCount;
-    watch.lastCheckNewCount = synchronized.lastCheckNewCount;
-  }
-  await chrome.storage.local.set({ watched: data.watched });
+  if (!response?.monitors) return null;
+  const localById = new Map(data.watched.map(watch => [watch.monitorId, watch]));
+  const watched = response.monitors.map(monitor => {
+    const local = localById.get(monitor.id) || {};
+    const tab = findMatchingTab(tabs, { ...local, url: monitor.url });
+    return { ...local, monitorId: monitor.id, name: monitor.name, url: monitor.url,
+      intervalMinutes: monitor.intervalMinutes, enabled: monitor.enabled,
+      newListingsCount: monitor.newListingsCount, lastCheckNewCount: monitor.lastCheckNewCount,
+      activeClientsCount: monitor.activeClientsCount, tabId: tab?.id || null, tabOpen: Boolean(tab),
+      nextCheckAt: local.nextCheckAt ?? Date.now() };
+  });
+  await chrome.storage.local.set({ watched });
+  return response;
 }
 
 async function tick() {
@@ -306,6 +310,7 @@ async function checkDue(forceMonitorId = null) {
     const data = await state();
     if (!data.token) return;
     for (const watch of data.watched) {
+      if (watch.enabled === false) continue;
       if (forceMonitorId !== null ? watch.monitorId !== forceMonitorId : watch.nextCheckAt > Date.now()) continue;
       try { await checkOne(watch); }
       catch (error) {
@@ -325,9 +330,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "pair") return pair(message.backendUrl, message.code);
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
+    if (message.type === "sync") { await reportPresence(); return true; }
     if (message.type === "remove") {
       const data = await state();
-      await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" }).catch(() => null);
+      await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" });
       await chrome.storage.local.set({ watched: data.watched.filter(item => item.monitorId !== message.monitorId) });
       return true;
     }

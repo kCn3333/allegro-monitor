@@ -97,7 +97,8 @@ app.post<{ Body: { code?: string; name?: string } }>("/api/extension/pair", asyn
   pairingCodes.delete(code);
   attempts.delete(`pair:${request.ip}`);
   const token = crypto.randomBytes(32).toString("base64url");
-  store.addExtensionClient(request.body?.name || "Vivaldi", tokenHash(token));
+  const clientId = store.addExtensionClient(request.body?.name || "Vivaldi", tokenHash(token));
+  store.linkClientToAllMonitors(clientId);
   return reply.send({ token });
 });
 
@@ -115,7 +116,7 @@ app.post<{ Body: { name?: string; url?: string; intervalMinutes?: number } }>("/
     return reply.send({ id: existing.id, name, url: existing.url, intervalMinutes: interval, newListingsCount: existing.newListingsCount, lastCheckNewCount: existing.lastCheckNewCount });
   }
   const id = store.createMonitor(name, url.toString(), interval);
-  store.linkMonitorClient(id, clientId);
+  store.linkMonitorToAllClients(id, clientId);
   return reply.send({ id, name, url: url.toString(), intervalMinutes: interval, newListingsCount: 0, lastCheckNewCount: 0 });
 });
 
@@ -125,15 +126,17 @@ app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }> } }>("/api/
   const monitors = request.body?.monitors;
   if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
   let updated = 0;
-  const synchronized = [];
   for (const presence of monitors) {
     const id = Number(presence?.id);
     if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
     store.linkMonitorClient(id, clientId, presence.open === true);
-    const monitor = store.getMonitor(id);
-    if (monitor) synchronized.push({ id: monitor.id, name: monitor.name, intervalMinutes: monitor.intervalMinutes, newListingsCount: monitor.newListingsCount, lastCheckNewCount: monitor.lastCheckNewCount });
     updated += 1;
   }
+  const synchronized = store.listMonitorsForClient(clientId).map(monitor => ({
+    id: monitor.id, name: monitor.name, url: monitor.url, intervalMinutes: monitor.intervalMinutes,
+    enabled: Boolean(monitor.enabled), newListingsCount: monitor.newListingsCount,
+    lastCheckNewCount: monitor.lastCheckNewCount, activeClientsCount: monitor.activeClientsCount
+  }));
   return reply.send({ updated, monitors: synchronized });
 });
 
