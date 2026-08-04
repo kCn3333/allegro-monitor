@@ -5,6 +5,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { config } from "./config.js";
 import { Store } from "./database.js";
 import { notifyTelegram } from "./notifications.js";
+import { isSameOriginRequest } from "./security.js";
 import { renderPage } from "./ui.js";
 import { assertAllegroUrl, validateListings } from "./validation.js";
 
@@ -42,13 +43,6 @@ function allowAttempt(key: string, maximum: number, windowMs: number): boolean {
   return current.count <= maximum;
 }
 
-function sameOrigin(request: FastifyRequest): boolean {
-  if (request.headers["sec-fetch-site"] === "cross-site") return false;
-  const origin = request.headers.origin;
-  if (!origin) return true;
-  try { return new URL(origin).host === request.headers.host; } catch { return false; }
-}
-
 function parseMonitorId(value: string): number | null {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -71,7 +65,7 @@ app.addHook("onRequest", async (request, reply) => {
     return reply.header("WWW-Authenticate", 'Basic realm="Allegro Monitor"').code(401).send("Logowanie wymagane");
   }
   attempts.delete(`basic:${request.ip}`);
-  if (request.method === "POST" && path?.startsWith("/monitors/") && !sameOrigin(request)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
+  if (request.method === "POST" && path?.startsWith("/monitors/") && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
 });
 
 app.get("/health", async () => ({ status: "ok" }));
