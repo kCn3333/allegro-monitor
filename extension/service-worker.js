@@ -148,8 +148,16 @@ async function reportPresence() {
     watch.tabOpen = Boolean(tab);
     return { id: watch.monitorId, open: watch.tabOpen };
   });
+  const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => null);
+  for (const watch of data.watched) {
+    const synchronized = response?.monitors?.find(monitor => monitor.id === watch.monitorId);
+    if (!synchronized) continue;
+    watch.name = synchronized.name;
+    watch.intervalMinutes = synchronized.intervalMinutes;
+    watch.newListingsCount = synchronized.newListingsCount;
+    watch.lastCheckNewCount = synchronized.lastCheckNewCount;
+  }
   await chrome.storage.local.set({ watched: data.watched });
-  await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => {});
 }
 
 async function tick() {
@@ -319,7 +327,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "remove") {
       const data = await state();
-      await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" });
+      await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" }).catch(() => null);
       await chrome.storage.local.set({ watched: data.watched.filter(item => item.monitorId !== message.monitorId) });
       return true;
     }

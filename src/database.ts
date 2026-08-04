@@ -167,6 +167,10 @@ export class Store {
     this.db.prepare("UPDATE monitors SET name=?, interval_minutes=? WHERE id=?").run(name, intervalMinutes, id);
   }
 
+  renameMonitor(id: number, name: string): void {
+    this.db.prepare("UPDATE monitors SET name=? WHERE id=?").run(name, id);
+  }
+
   deleteMonitor(id: number): void {
     this.db.prepare("DELETE FROM monitors WHERE id = ?").run(id);
   }

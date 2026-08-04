@@ -76,6 +76,8 @@ test("keeps a shared monitor active while another extension still has its tab op
     store.linkMonitorClient(monitorId, firstClient, true);
     store.linkMonitorClient(monitorId, secondClient, true);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 2);
+    store.renameMonitor(monitorId, "Nowa nazwa");
+    assert.equal(store.getMonitor(monitorId)?.name, "Nowa nazwa");
 
     store.linkMonitorClient(monitorId, firstClient, false);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 1);

@@ -125,13 +125,16 @@ app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }> } }>("/api/
   const monitors = request.body?.monitors;
   if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
   let updated = 0;
+  const synchronized = [];
   for (const presence of monitors) {
     const id = Number(presence?.id);
     if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
     store.linkMonitorClient(id, clientId, presence.open === true);
+    const monitor = store.getMonitor(id);
+    if (monitor) synchronized.push({ id: monitor.id, name: monitor.name, intervalMinutes: monitor.intervalMinutes, newListingsCount: monitor.newListingsCount, lastCheckNewCount: monitor.lastCheckNewCount });
     updated += 1;
   }
-  return reply.send({ updated });
+  return reply.send({ updated, monitors: synchronized });
 });
 
 app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extension/monitors/:id/results", async (request, reply) => {
@@ -177,6 +180,14 @@ app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:
   const externalId = String(request.body?.externalId || "").slice(0, 200);
   if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
   if (!store.addExclusion(id, externalId)) return reply.code(404).send("Pozycja nie istnieje w tym monitorze");
+  return reply.redirect("/");
+});
+
+app.post<{ Params: { id: string }; Body: { name?: string } }>("/monitors/:id/rename", async (request, reply) => {
+  const id = parseMonitorId(request.params.id);
+  const name = request.body?.name?.trim() || "";
+  if (!id || !name || name.length > 100 || !store.getMonitor(id)) return reply.code(400).send("Nieprawidłowa nazwa monitora");
+  store.renameMonitor(id, name);
   return reply.redirect("/");
 });
 
