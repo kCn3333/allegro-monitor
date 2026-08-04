@@ -1,5 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const send = message => new Promise(resolve => chrome.runtime.sendMessage(message, resolve));
+$("#extension-version").textContent = `Wersja ${chrome.runtime.getManifest().version}`;
 
 function message(text, type = "") { $("#message").textContent = text; $("#message").className = type; }
 function esc(value) { return String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char])); }
