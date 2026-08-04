@@ -5,8 +5,10 @@ import type { Listing, Monitor } from "./types.js";
 
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly listingRetentionChecks: number;
 
-  constructor(databasePath: string) {
+  constructor(databasePath: string, listingRetentionChecks = 5) {
+    this.listingRetentionChecks = Math.max(2, listingRetentionChecks);
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
@@ -15,13 +17,14 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         url TEXT NOT NULL,
-        interval_minutes INTEGER NOT NULL DEFAULT 10 CHECK(interval_minutes >= 2),
+        interval_minutes INTEGER NOT NULL DEFAULT 5 CHECK(interval_minutes >= 1),
         enabled INTEGER NOT NULL DEFAULT 1,
         initialized INTEGER NOT NULL DEFAULT 0,
         last_checked_at TEXT,
         next_check_at TEXT NOT NULL,
         last_error TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        new_listings_count INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS listings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,10 +35,10 @@ export class Store {
         price TEXT,
         image_url TEXT,
         first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        missing_checks INTEGER NOT NULL DEFAULT 0,
         UNIQUE(monitor_id, external_id)
       );
-      CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
-      CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE TABLE IF NOT EXISTS extension_clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -44,12 +47,66 @@ export class Store {
         created_at TEXT NOT NULL
       );
     `);
+    this.migrateLegacySchema();
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
+      CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
+    `);
+  }
+
+  private migrateLegacySchema(): void {
+    const monitorSql = String((this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='monitors'").get() as { sql?: string } | undefined)?.sql || "");
+    if (monitorSql.includes("interval_minutes >= 2")) {
+      this.db.exec(`
+        PRAGMA foreign_keys = OFF;
+        DROP INDEX IF EXISTS idx_monitors_due;
+        DROP INDEX IF EXISTS idx_listings_seen;
+        BEGIN;
+        ALTER TABLE listings RENAME TO listings_legacy;
+        ALTER TABLE monitors RENAME TO monitors_legacy;
+        CREATE TABLE monitors (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          url TEXT NOT NULL,
+          interval_minutes INTEGER NOT NULL DEFAULT 5 CHECK(interval_minutes >= 1),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          initialized INTEGER NOT NULL DEFAULT 0,
+          last_checked_at TEXT,
+          next_check_at TEXT NOT NULL,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          new_listings_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE listings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+          external_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          url TEXT NOT NULL,
+          price TEXT,
+          image_url TEXT,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          missing_checks INTEGER NOT NULL DEFAULT 0,
+          UNIQUE(monitor_id, external_id)
+        );
+        INSERT INTO monitors(id,name,url,interval_minutes,enabled,initialized,last_checked_at,next_check_at,last_error,created_at)
+          SELECT id,name,url,interval_minutes,enabled,initialized,last_checked_at,next_check_at,last_error,created_at FROM monitors_legacy;
+        INSERT INTO listings(id,monitor_id,external_id,title,url,price,image_url,first_seen_at,last_seen_at)
+          SELECT id,monitor_id,external_id,title,url,price,image_url,first_seen_at,first_seen_at FROM listings_legacy;
+        DROP TABLE listings_legacy;
+        DROP TABLE monitors_legacy;
+        COMMIT;
+        PRAGMA foreign_keys = ON;
+      `);
+    }
   }
 
   listMonitors(): Monitor[] {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors ORDER BY created_at DESC`).all() as unknown as Monitor[];
   }
 
   createMonitor(name: string, url: string, intervalMinutes: number): number {
@@ -62,13 +119,17 @@ export class Store {
   getMonitor(id: number): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
   }
 
   findMonitorByUrl(url: string): Monitor | undefined {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
+  }
+
+  updateMonitorSettings(id: number, name: string, intervalMinutes: number): void {
+    this.db.prepare("UPDATE monitors SET name=?, interval_minutes=? WHERE id=?").run(name, intervalMinutes, id);
   }
 
   deleteMonitor(id: number): void {
@@ -87,7 +148,7 @@ export class Store {
   dueMonitors(): Monitor[] {
     return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt, next_check_at nextCheckAt,
-      last_error lastError, created_at createdAt FROM monitors
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount FROM monitors
       WHERE enabled = 1 AND next_check_at <= ? ORDER BY next_check_at LIMIT 10`)
       .all(new Date().toISOString()) as unknown as Monitor[];
   }
@@ -95,16 +156,28 @@ export class Store {
   saveCheck(monitor: Monitor, listings: Listing[]): Listing[] {
     const now = new Date().toISOString();
     const insert = this.db.prepare(`INSERT OR IGNORE INTO listings
-      (monitor_id,external_id,title,url,price,image_url,first_seen_at) VALUES(?,?,?,?,?,?,?)`);
+      (monitor_id,external_id,title,url,price,image_url,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?)`);
+    const markSeen = this.db.prepare(`UPDATE listings SET title=?,url=?,price=?,image_url=?,last_seen_at=?,missing_checks=0
+      WHERE monitor_id=? AND external_id=?`);
     const fresh: Listing[] = [];
-    for (const listing of listings) {
-      const result = insert.run(monitor.id, listing.externalId, listing.title, listing.url,
-        listing.price, listing.imageUrl, now);
-      if (result.changes > 0 && monitor.initialized === 1) fresh.push(listing);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE listings SET missing_checks=missing_checks+1 WHERE monitor_id=?").run(monitor.id);
+      for (const listing of listings) {
+        const result = insert.run(monitor.id, listing.externalId, listing.title, listing.url,
+          listing.price, listing.imageUrl, now, now);
+        markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
+        if (result.changes > 0 && monitor.initialized === 1) fresh.push(listing);
+      }
+      this.db.prepare("DELETE FROM listings WHERE monitor_id=? AND missing_checks>=?").run(monitor.id, this.listingRetentionChecks);
+      const next = new Date(Date.now() + monitor.intervalMinutes * 60_000).toISOString();
+      this.db.prepare(`UPDATE monitors SET initialized=1,last_checked_at=?,next_check_at=?,last_error=NULL,
+        new_listings_count=new_listings_count+? WHERE id=?`).run(now, next, fresh.length, monitor.id);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
-    const next = new Date(Date.now() + monitor.intervalMinutes * 60_000).toISOString();
-    this.db.prepare(`UPDATE monitors SET initialized=1,last_checked_at=?,next_check_at=?,last_error=NULL WHERE id=?`)
-      .run(now, next, monitor.id);
     return fresh;
   }
 

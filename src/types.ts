@@ -17,4 +17,5 @@ export interface Monitor {
   nextCheckAt: string;
   lastError: string | null;
   createdAt: string;
+  newListingsCount: number;
 }

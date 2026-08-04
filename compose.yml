@@ -11,21 +11,31 @@ services:
       APP_TIME_ZONE: ${APP_TIME_ZONE:-Europe/Warsaw}
       TZ: ${APP_TIME_ZONE:-Europe/Warsaw}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?Set TELEGRAM_CHAT_ID in Portainer}
+      TELEGRAM_CHAT_IDS: ${TELEGRAM_CHAT_IDS:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      LISTING_RETENTION_CHECKS: ${LISTING_RETENTION_CHECKS:-5}
       APP_USERNAME: ${APP_USERNAME:?Set APP_USERNAME in Portainer}
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in Portainer}
     ports:
-      - "${APP_PORT:-3000}:${APP_PORT:-3000}"
+      - "${BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-3000}:${APP_PORT:-3000}"
     volumes:
       - monitor-data:/app/data
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
     cap_drop:
       - ALL
     mem_limit: 256m
     mem_reservation: 64m
     cpus: 0.5
     pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 volumes:
   monitor-data:

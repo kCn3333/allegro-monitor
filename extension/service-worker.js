@@ -8,6 +8,14 @@ async function state() {
 
 async function ensureAlarm() {
   if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 1 });
+  await updateActionBadge();
+}
+
+async function updateActionBadge() {
+  const { unread } = await state();
+  await chrome.action.setBadgeBackgroundColor({ color: "#187a45" });
+  if (chrome.action.setBadgeTextColor) await chrome.action.setBadgeTextColor({ color: "#ffffff" }).catch(() => {});
+  await chrome.action.setBadgeText({ text: unread.length ? (unread.length > 99 ? "+99" : `+${unread.length}`) : "" });
 }
 
 chrome.runtime.onInstalled.addListener(ensureAlarm);
@@ -46,7 +54,7 @@ async function addCurrentTab(name, intervalMinutes) {
   });
   const data = await state();
   const watched = data.watched.filter(item => item.monitorId !== created.id && item.url !== tab.url);
-  watched.push({ monitorId: created.id, tabId: tab.id, url: tab.url, name: created.name, intervalMinutes, nextCheckAt: Date.now() });
+  watched.push({ monitorId: created.id, tabId: tab.id, url: tab.url, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, nextCheckAt: Date.now() });
   await chrome.storage.local.set({ watched });
   return created;
 }
@@ -136,7 +144,7 @@ function markNewOffers(ids) {
     const id = numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
     if (!id || !wanted.has(id)) continue;
     const card = anchor.closest("article") || anchor.closest('[data-box-name]') || anchor.parentElement;
-    if (card) { card.style.outline = "3px solid #ff5a00"; card.style.outlineOffset = "3px"; }
+    if (card) { card.style.outline = "3px solid #d8612c"; card.style.outlineOffset = "3px"; }
   }
   if (ids.length && !document.title.startsWith(`[+${ids.length}]`)) document.title = `[+${ids.length}] ${document.title}`;
 }
@@ -161,12 +169,12 @@ async function checkOne(watch) {
   }
   const response = await api(`/api/extension/monitors/${watch.monitorId}/results`, { method: "POST", body: JSON.stringify({ listings: result.listings }) });
   const fresh = response.newListings || [];
+  watch.newListingsCount = Number(response.newListingsCount) || 0;
   if (fresh.length) {
     const current = await state();
     const unread = [...fresh.map(item => ({ ...item, monitorName: watch.name, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
     await chrome.storage.local.set({ unread });
-    await chrome.action.setBadgeBackgroundColor({ color: "#ff5a00" });
-    await chrome.action.setBadgeText({ text: unread.length > 99 ? "+99" : `+${unread.length}` });
+    await updateActionBadge();
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: markNewOffers, args: [fresh.map(item => item.externalId)] });
     const first = fresh[0];
     await chrome.notifications.create(`new-${watch.monitorId}-${Date.now()}`, { type: "basic", iconUrl: "icon-128.png", title: `${fresh.length === 1 ? "Nowa oferta" : `Nowe oferty (${fresh.length})`}: ${watch.name}`, message: `${first.title}${first.price ? ` — ${first.price}` : ""}` });
@@ -206,7 +214,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await chrome.storage.local.set({ watched: data.watched.filter(item => item.monitorId !== message.monitorId) });
       return true;
     }
-    if (message.type === "clear-unread") { await chrome.storage.local.set({ unread: [] }); await chrome.action.setBadgeText({ text: "" }); return true; }
+    if (message.type === "clear-unread") { await chrome.storage.local.set({ unread: [] }); await updateActionBadge(); return true; }
     throw new Error("Nieznana operacja");
   })().then(result => sendResponse({ ok: true, result })).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
