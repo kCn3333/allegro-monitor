@@ -35,7 +35,7 @@ button { width:100%; background:var(--brand); border-color:var(--brand); color:#
 .new-count { flex:0 0 auto; border-radius:99px; padding:3px 7px; background:var(--green-soft); color:var(--green)!important; font-weight:800; }
 .tab-status.open { color:var(--green); }
 .tab-status.closed { color:#d43b32; }
-.actions { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:7px; }
+.actions { display:grid; grid-template-columns:1fr auto; gap:6px; margin-top:7px; }
 .actions button { padding:5px; font-size:11px; }
 .actions .remove { background:transparent; color:#d43b32; border-color:var(--line); }
 #message.error { color:#d43b32; }
