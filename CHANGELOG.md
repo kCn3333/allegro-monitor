@@ -4,6 +4,11 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## Niewydane — 2026-08-05
+
+- Powiadomienie Telegram ma formę karty ze zdjęciem, tytułem, ceną i przyciskiem
+  prowadzącym do oferty; w razie odrzucenia zdjęcia używa wariantu tekstowego.
+
 ## 0.7.2 — 2026-08-04
 
 - Numer wersji rozszerzenia jest wyświetlany dynamicznie w popupie.
@@ -105,4 +110,3 @@ zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
   rzecz rozszerzenia korzystającego z prawdziwej sesji użytkownika.
 - W repozytorium zachowano również wcześniejszy eksperyment z oficjalnym API
   Allegro i pobieraniem kategorii.
-
