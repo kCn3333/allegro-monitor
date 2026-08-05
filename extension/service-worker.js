@@ -146,7 +146,7 @@ async function reportPresence() {
     const tab = findMatchingTab(tabs, watch);
     watch.tabId = tab?.id || null;
     watch.tabOpen = Boolean(tab);
-    return { id: watch.monitorId, open: watch.tabOpen };
+    return { id: watch.monitorId, open: watch.tabOpen && watch.clientEnabled !== false };
   });
   const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => null);
   if (!response?.monitors) return null;
@@ -156,6 +156,7 @@ async function reportPresence() {
     const tab = findMatchingTab(tabs, { ...local, url: monitor.url });
     return { ...local, monitorId: monitor.id, name: monitor.name, url: monitor.url,
       intervalMinutes: monitor.intervalMinutes, enabled: monitor.enabled,
+      clientEnabled: monitor.clientEnabled,
       newListingsCount: monitor.newListingsCount, lastCheckNewCount: monitor.lastCheckNewCount,
       activeClientsCount: monitor.activeClientsCount, tabId: tab?.id || null, tabOpen: Boolean(tab),
       nextCheckAt: local.nextCheckAt ?? Date.now() };
@@ -310,7 +311,7 @@ async function checkDue(forceMonitorId = null) {
     const data = await state();
     if (!data.token) return;
     for (const watch of data.watched) {
-      if (watch.enabled === false) continue;
+      if (watch.enabled === false || watch.clientEnabled === false) continue;
       if (forceMonitorId !== null ? watch.monitorId !== forceMonitorId : watch.nextCheckAt > Date.now()) continue;
       try { await checkOne(watch); }
       catch (error) {
@@ -331,10 +332,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "sync") { await reportPresence(); return true; }
-    if (message.type === "remove") {
-      const data = await state();
-      await api(`/api/extension/monitors/${message.monitorId}`, { method: "DELETE" });
-      await chrome.storage.local.set({ watched: data.watched.filter(item => item.monitorId !== message.monitorId) });
+    if (message.type === "client-state") {
+      await api(`/api/extension/monitors/${message.monitorId}/client-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) });
+      await reportPresence();
       return true;
     }
     if (message.type === "clear-unread") { await chrome.storage.local.set({ unread: [] }); await updateActionBadge(); return true; }

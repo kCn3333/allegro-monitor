@@ -129,13 +129,14 @@ app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }> } }>("/api/
   for (const presence of monitors) {
     const id = Number(presence?.id);
     if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
-    store.linkMonitorClient(id, clientId, presence.open === true);
+    store.linkMonitorClient(id, clientId, presence.open === true && store.isMonitorEnabledForClient(id, clientId));
     updated += 1;
   }
-  const synchronized = store.listMonitorsForClient(clientId).map(monitor => ({
+  const synchronized = store.listMonitors().map(monitor => ({
     id: monitor.id, name: monitor.name, url: monitor.url, intervalMinutes: monitor.intervalMinutes,
     enabled: Boolean(monitor.enabled), newListingsCount: monitor.newListingsCount,
-    lastCheckNewCount: monitor.lastCheckNewCount, activeClientsCount: monitor.activeClientsCount
+    lastCheckNewCount: monitor.lastCheckNewCount, activeClientsCount: monitor.activeClientsCount,
+    clientEnabled: store.isMonitorEnabledForClient(monitor.id, clientId)
   }));
   return reply.send({ updated, monitors: synchronized });
 });
@@ -146,7 +147,7 @@ app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extensi
   const id = parseMonitorId(request.params.id);
   if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
   const monitor = store.getMonitor(id);
-  if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje, jest wyłączony lub nie należy do tego rozszerzenia");
+  if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId) || !store.isMonitorEnabledForClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje lub jest wyłączony");
   store.linkMonitorClient(id, clientId, true);
   let listings; try { listings = validateListings(request.body?.listings); } catch (error) { return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowe wyniki"); }
   const fresh = store.saveCheck(monitor, listings);
@@ -168,14 +169,14 @@ app.post<{ Params: { id: string }; Body: { message?: string } }>("/api/extension
   return reply.send({ saved: true });
 });
 
-app.delete<{ Params: { id: string } }>("/api/extension/monitors/:id", async (request, reply) => {
+app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>("/api/extension/monitors/:id/client-state", async (request, reply) => {
   const clientId = extensionClientId(request, reply);
   if (!clientId) return;
   const id = parseMonitorId(request.params.id);
-  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-  if (!store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie należy do tego rozszerzenia");
-  store.unlinkMonitorClient(id, clientId);
-  return reply.send({ detached: true });
+  if (!id || typeof request.body?.enabled !== "boolean") return reply.code(400).send("Nieprawidłowy stan monitora");
+  if (!store.getMonitor(id)) return reply.code(404).send("Monitor nie istnieje");
+  store.setMonitorEnabledForClient(id, clientId, request.body.enabled);
+  return reply.send({ enabled: request.body.enabled });
 });
 
 app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:id/exclusions", async (request, reply) => {

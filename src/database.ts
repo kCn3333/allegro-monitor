@@ -62,6 +62,7 @@ export class Store {
         monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
         client_id INTEGER NOT NULL REFERENCES extension_clients(id) ON DELETE CASCADE,
         tab_open INTEGER NOT NULL DEFAULT 0,
+        client_enabled INTEGER NOT NULL DEFAULT 1,
         last_seen_at TEXT NOT NULL,
         PRIMARY KEY(monitor_id, client_id)
       );
@@ -69,6 +70,8 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
     `);
+    const clientColumns = new Set((this.db.prepare("PRAGMA table_info(monitor_clients)").all() as Array<{ name: string }>).map(column => column.name));
+    if (!clientColumns.has("client_enabled")) this.db.exec("ALTER TABLE monitor_clients ADD COLUMN client_enabled INTEGER NOT NULL DEFAULT 1");
   }
 
   private migrateLegacySchema(): void {
@@ -294,6 +297,19 @@ export class Store {
 
   hasMonitorClient(monitorId: number, clientId: number): boolean {
     return Boolean(this.db.prepare("SELECT 1 FROM monitor_clients WHERE monitor_id=? AND client_id=?").get(monitorId, clientId));
+  }
+
+  isMonitorEnabledForClient(monitorId: number, clientId: number): boolean {
+    const row = this.db.prepare("SELECT client_enabled clientEnabled FROM monitor_clients WHERE monitor_id=? AND client_id=?")
+      .get(monitorId, clientId) as { clientEnabled: number } | undefined;
+    return row ? Boolean(row.clientEnabled) : true;
+  }
+
+  setMonitorEnabledForClient(monitorId: number, clientId: number, enabled: boolean): void {
+    this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,client_enabled,last_seen_at) VALUES(?,?,0,?,?)
+      ON CONFLICT(monitor_id,client_id) DO UPDATE SET client_enabled=excluded.client_enabled,
+      tab_open=CASE WHEN excluded.client_enabled=0 THEN 0 ELSE monitor_clients.tab_open END,last_seen_at=excluded.last_seen_at`)
+      .run(monitorId, clientId, enabled ? 1 : 0, new Date().toISOString());
   }
 
   unlinkMonitorClient(monitorId: number, clientId: number): void {

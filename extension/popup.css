@@ -37,6 +37,6 @@ button { width:100%; background:var(--brand); border-color:var(--brand); color:#
 .tab-status.closed { color:#d43b32; }
 .actions { display:grid; grid-template-columns:1fr auto; gap:6px; margin-top:7px; }
 .actions button { padding:5px; font-size:11px; }
-.actions .remove { background:transparent; color:#d43b32; border-color:var(--line); }
+.actions .deactivate { background:transparent; color:var(--muted); border-color:var(--line); }
 #message.error { color:#d43b32; }
 #message.ok { color:#26945a; }
