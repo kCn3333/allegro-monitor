@@ -4,6 +4,15 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 0.9.0 — 2026-08-05
+
+- Rozdzielono dostarczanie wyników przez otwarte karty od odbierania lokalnych
+  powiadomień.
+- Nowe oferty są zapisywane jako zdarzenia i przekazywane niezależnie do każdego
+  sparowanego rozszerzenia bez duplikatów.
+- Każdy monitor ma osobny przełącznik powiadomień na każdym urządzeniu.
+- Oferta wykryta na jednym komputerze może wywołać powiadomienie na drugim.
+
 ## 0.8.0 — 2026-08-05
 
 - Powiadomienie Telegram ma formę karty ze zdjęciem, tytułem, ceną i przyciskiem
@@ -11,8 +20,8 @@ zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 - Serwer i panel WWW są źródłem pełnej listy monitorów, również tych utworzonych
   przed sparowaniem konkretnego rozszerzenia.
 - Usuwanie monitora jest dostępne wyłącznie w panelu WWW.
-- Dodano niezależne włączanie i wyłączanie obserwowania na każdym urządzeniu.
-- Otwarcie brakującej karty włącza obserwowanie na bieżącym urządzeniu.
+- Dodano pierwszy wariant ustawień rozszerzenia osobno dla urządzenia, rozwinięty
+  w wersji 0.9.0 o niezależne powiadomienia.
 
 ## 0.7.2 — 2026-08-04
 

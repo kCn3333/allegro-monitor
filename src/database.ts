@@ -44,6 +44,7 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
+        last_notification_event_id INTEGER NOT NULL DEFAULT 0,
         last_seen_at TEXT,
         created_at TEXT NOT NULL
       );
@@ -63,15 +64,32 @@ export class Store {
         client_id INTEGER NOT NULL REFERENCES extension_clients(id) ON DELETE CASCADE,
         tab_open INTEGER NOT NULL DEFAULT 0,
         client_enabled INTEGER NOT NULL DEFAULT 1,
+        notifications_enabled INTEGER NOT NULL DEFAULT 1,
         last_seen_at TEXT NOT NULL,
         PRIMARY KEY(monitor_id, client_id)
       );
       CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
+      CREATE TABLE IF NOT EXISTS notification_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+        external_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        price TEXT,
+        image_url TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
+    const extensionColumns = new Set((this.db.prepare("PRAGMA table_info(extension_clients)").all() as Array<{ name: string }>).map(column => column.name));
+    if (!extensionColumns.has("last_notification_event_id")) this.db.exec("ALTER TABLE extension_clients ADD COLUMN last_notification_event_id INTEGER NOT NULL DEFAULT 0");
     const clientColumns = new Set((this.db.prepare("PRAGMA table_info(monitor_clients)").all() as Array<{ name: string }>).map(column => column.name));
     if (!clientColumns.has("client_enabled")) this.db.exec("ALTER TABLE monitor_clients ADD COLUMN client_enabled INTEGER NOT NULL DEFAULT 1");
+    if (!clientColumns.has("notifications_enabled")) {
+      this.db.exec("ALTER TABLE monitor_clients ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1");
+      this.db.exec("UPDATE monitor_clients SET notifications_enabled=client_enabled");
+    }
   }
 
   private migrateLegacySchema(): void {
@@ -205,6 +223,8 @@ export class Store {
       (monitor_id,external_id,title,url,price,image_url,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?)`);
     const markSeen = this.db.prepare(`UPDATE listings SET title=?,url=?,price=?,image_url=?,last_seen_at=?,missing_checks=0
       WHERE monitor_id=? AND external_id=?`);
+    const addEvent = this.db.prepare(`INSERT INTO notification_events
+      (monitor_id,external_id,title,url,price,image_url,created_at) VALUES(?,?,?,?,?,?,?)`);
     const fresh: Listing[] = [];
     this.db.exec("BEGIN");
     try {
@@ -213,7 +233,10 @@ export class Store {
         const result = insert.run(monitor.id, listing.externalId, listing.title, listing.url,
           listing.price, listing.imageUrl, now, now);
         markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
-        if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) fresh.push(listing);
+        if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) {
+          fresh.push(listing);
+          addEvent.run(monitor.id, listing.externalId, listing.title, listing.url, listing.price, listing.imageUrl, now);
+        }
       }
       this.db.prepare("DELETE FROM listings WHERE monitor_id=? AND missing_checks>=?").run(monitor.id, this.listingRetentionChecks);
       const next = new Date(Date.now() + monitor.intervalMinutes * 60_000).toISOString();
@@ -260,7 +283,8 @@ export class Store {
   }
 
   addExtensionClient(name: string, tokenHash: string): number {
-    const result = this.db.prepare("INSERT INTO extension_clients(name,token_hash,created_at) VALUES(?,?,?)")
+    const result = this.db.prepare(`INSERT INTO extension_clients(name,token_hash,last_notification_event_id,created_at)
+      VALUES(?,?,(SELECT COALESCE(MAX(id),0) FROM notification_events),?)`)
       .run(name.slice(0, 100), tokenHash, new Date().toISOString());
     return Number(result.lastInsertRowid);
   }
@@ -299,17 +323,33 @@ export class Store {
     return Boolean(this.db.prepare("SELECT 1 FROM monitor_clients WHERE monitor_id=? AND client_id=?").get(monitorId, clientId));
   }
 
-  isMonitorEnabledForClient(monitorId: number, clientId: number): boolean {
-    const row = this.db.prepare("SELECT client_enabled clientEnabled FROM monitor_clients WHERE monitor_id=? AND client_id=?")
-      .get(monitorId, clientId) as { clientEnabled: number } | undefined;
-    return row ? Boolean(row.clientEnabled) : true;
+  areNotificationsEnabledForClient(monitorId: number, clientId: number): boolean {
+    const row = this.db.prepare("SELECT notifications_enabled notificationsEnabled FROM monitor_clients WHERE monitor_id=? AND client_id=?")
+      .get(monitorId, clientId) as { notificationsEnabled: number } | undefined;
+    return row ? Boolean(row.notificationsEnabled) : true;
   }
 
-  setMonitorEnabledForClient(monitorId: number, clientId: number, enabled: boolean): void {
-    this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,client_enabled,last_seen_at) VALUES(?,?,0,?,?)
-      ON CONFLICT(monitor_id,client_id) DO UPDATE SET client_enabled=excluded.client_enabled,
-      tab_open=CASE WHEN excluded.client_enabled=0 THEN 0 ELSE monitor_clients.tab_open END,last_seen_at=excluded.last_seen_at`)
+  setNotificationsForClient(monitorId: number, clientId: number, enabled: boolean): void {
+    this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,notifications_enabled,last_seen_at) VALUES(?,?,0,?,?)
+      ON CONFLICT(monitor_id,client_id) DO UPDATE SET notifications_enabled=excluded.notifications_enabled,last_seen_at=excluded.last_seen_at`)
       .run(monitorId, clientId, enabled ? 1 : 0, new Date().toISOString());
+  }
+
+  pullNotifications(clientId: number): Array<Listing & { eventId: number; monitorId: number; monitorName: string }> {
+    const client = this.db.prepare("SELECT last_notification_event_id lastEventId FROM extension_clients WHERE id=?")
+      .get(clientId) as { lastEventId: number } | undefined;
+    if (!client) return [];
+    const latest = Number((this.db.prepare("SELECT COALESCE(MAX(id),0) latest FROM notification_events").get() as { latest: number }).latest);
+    const events = this.db.prepare(`SELECT e.id eventId,e.monitor_id monitorId,m.name monitorName,e.external_id externalId,
+      e.title,e.url,e.price,e.image_url imageUrl FROM notification_events e JOIN monitors m ON m.id=e.monitor_id
+      WHERE e.id>? AND COALESCE((SELECT mc.notifications_enabled FROM monitor_clients mc
+        WHERE mc.monitor_id=e.monitor_id AND mc.client_id=?),1)=1 ORDER BY e.id`)
+      .all(client.lastEventId, clientId) as unknown as Array<Listing & { eventId: number; monitorId: number; monitorName: string }>;
+    this.db.prepare("UPDATE extension_clients SET last_notification_event_id=? WHERE id=?").run(latest, clientId);
+    const expiresBefore = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    this.db.prepare(`DELETE FROM notification_events WHERE created_at<? OR id<=
+      (SELECT COALESCE(MIN(last_notification_event_id),0) FROM extension_clients)`).run(expiresBefore);
+    return events;
   }
 
   unlinkMonitorClient(monitorId: number, clientId: number): void {

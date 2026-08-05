@@ -146,7 +146,7 @@ async function reportPresence() {
     const tab = findMatchingTab(tabs, watch);
     watch.tabId = tab?.id || null;
     watch.tabOpen = Boolean(tab);
-    return { id: watch.monitorId, open: watch.tabOpen && watch.clientEnabled !== false };
+    return { id: watch.monitorId, open: watch.tabOpen };
   });
   const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => null);
   if (!response?.monitors) return null;
@@ -156,12 +156,26 @@ async function reportPresence() {
     const tab = findMatchingTab(tabs, { ...local, url: monitor.url });
     return { ...local, monitorId: monitor.id, name: monitor.name, url: monitor.url,
       intervalMinutes: monitor.intervalMinutes, enabled: monitor.enabled,
-      clientEnabled: monitor.clientEnabled,
+      notificationsEnabled: monitor.notificationsEnabled,
       newListingsCount: monitor.newListingsCount, lastCheckNewCount: monitor.lastCheckNewCount,
       activeClientsCount: monitor.activeClientsCount, tabId: tab?.id || null, tabOpen: Boolean(tab),
       nextCheckAt: local.nextCheckAt ?? Date.now() };
   });
-  await chrome.storage.local.set({ watched });
+  const incoming = Array.isArray(response.notifications) ? response.notifications : [];
+  const current = await state();
+  const knownEvents = new Set(current.unread.map(item => item.eventId).filter(Boolean));
+  const freshNotifications = incoming.filter(item => !knownEvents.has(item.eventId));
+  const unread = [...freshNotifications.map(item => ({ ...item, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
+  await chrome.storage.local.set({ watched, unread });
+  if (freshNotifications.length) {
+    const first = freshNotifications[0];
+    await chrome.notifications.create(`event-${first.eventId}`, {
+      type: "basic", iconUrl: "icon-128.png",
+      title: freshNotifications.length === 1 ? `Nowa oferta: ${first.monitorName}` : `Nowe oferty (${freshNotifications.length})`,
+      message: `${first.title}${first.price ? ` — ${first.price}` : ""}`
+    });
+  }
+  await updateActionBadge();
   return response;
 }
 
@@ -292,13 +306,8 @@ async function checkOne(watch) {
   watch.newListingsCount = Number(response.newListingsCount) || 0;
   watch.lastCheckNewCount = Number(response.lastCheckNewCount) || 0;
   if (fresh.length) {
-    const current = await state();
-    const unread = [...fresh.map(item => ({ ...item, monitorName: watch.name, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
-    await chrome.storage.local.set({ unread });
-    await updateActionBadge();
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: markNewOffers, args: [fresh.map(item => item.externalId)] });
-    const first = fresh[0];
-    await chrome.notifications.create(`new-${watch.monitorId}-${Date.now()}`, { type: "basic", iconUrl: "icon-128.png", title: `${fresh.length === 1 ? "Nowa oferta" : `Nowe oferty (${fresh.length})`}: ${watch.name}`, message: `${first.title}${first.price ? ` — ${first.price}` : ""}` });
+    await reportPresence();
   }
   watch.nextCheckAt = Date.now() + watch.intervalMinutes * 60_000;
   return fresh.length;
@@ -311,7 +320,7 @@ async function checkDue(forceMonitorId = null) {
     const data = await state();
     if (!data.token) return;
     for (const watch of data.watched) {
-      if (watch.enabled === false || watch.clientEnabled === false) continue;
+      if (watch.enabled === false || watch.tabOpen === false) continue;
       if (forceMonitorId !== null ? watch.monitorId !== forceMonitorId : watch.nextCheckAt > Date.now()) continue;
       try { await checkOne(watch); }
       catch (error) {
@@ -332,8 +341,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "sync") { await reportPresence(); return true; }
-    if (message.type === "client-state") {
-      await api(`/api/extension/monitors/${message.monitorId}/client-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) });
+    if (message.type === "notification-state") {
+      await api(`/api/extension/monitors/${message.monitorId}/notification-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) });
       await reportPresence();
       return true;
     }

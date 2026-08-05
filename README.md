@@ -64,7 +64,7 @@ Po uruchomieniu serwera przejdź do `/extension`, pobierz ZIP i postępuj wedłu
 
 Rozszerzenie odświeża wskazane karty pojedynczo. Dostępne interwały to 1, 5, 15, 30 i 60 minut. Pierwszy odczyt tworzy stan początkowy; kolejne nowe oferty pojawiają się w badge, popupie, powiadomieniu systemowym, panelu WWW i na Telegramie.
 
-Każde sparowane rozszerzenie co minutę oraz po zdarzeniu otwarcia lub zamknięcia karty przesyła heartbeat obecności i pobiera pełną wspólną listę monitorów. Monitor jest oznaczony jako aktywny, jeśli przynajmniej jedno urządzenie ma otwartą właściwą kartę i zgłosiło się w ciągu ostatnich trzech minut. Dzięki temu zamknięcie karty przez jedną osobę nie wyłącza wspólnego monitora działającego u drugiej. Dodanie, zmiana nazwy, wstrzymanie i usunięcie w panelu synchronizują się między rozszerzeniami. Popup nie pozwala kasować danych; przycisk „Wyłącz tutaj” zatrzymuje monitor wyłącznie na bieżącym urządzeniu.
+Każde sparowane rozszerzenie co minutę oraz po zdarzeniu otwarcia lub zamknięcia karty przesyła heartbeat obecności i pobiera pełną wspólną listę monitorów. Monitor jest oznaczony jako aktywny, jeśli przynajmniej jedno urządzenie ma otwartą właściwą kartę i zgłosiło się w ciągu ostatnich trzech minut. Dzięki temu zamknięcie karty przez jedną osobę nie wyłącza wspólnego monitora działającego u drugiej. Dodanie, zmiana nazwy, wstrzymanie i usunięcie w panelu synchronizują się między rozszerzeniami. Popup nie pozwala kasować danych. Sprawdzanie przez otwartą kartę i lokalne powiadomienia są niezależne, a każde urządzenie ma osobny przełącznik powiadomień dla każdego monitora.
 
 ## Bezpieczeństwo
 
