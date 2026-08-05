@@ -4,6 +4,15 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 1.0.0 — 2026-08-05
+
+- Popup rozszerzenia podzielono na zakładki: Monitor, Obserwowane i Nowe.
+- Zakładka główna porównuje lokalną wersję z paczką publikowaną przez serwer.
+- Ustawienie powiadomień ma formę wyraźnego przełącznika przy każdym monitorze.
+- Każdy monitor ma osobne akcje otwarcia karty i ręcznego sprawdzenia; ręczne
+  sprawdzenie jest niedostępne po wyciszeniu powiadomień lub zamknięciu karty.
+- Zakładka Nowe pokazuje licznik i listę ofert odebranych przez dane urządzenie.
+
 ## 0.9.0 — 2026-08-05
 
 - Rozdzielono dostarczanie wyników przez otwarte karty od odbierania lokalnych

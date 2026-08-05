@@ -19,6 +19,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/extension.zip ./extension.zip
+COPY --from=build /app/extension/manifest.json ./extension/manifest.json
 RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 EXPOSE 3000

@@ -19,6 +19,10 @@ const store = new Store(config.databasePath, config.listingRetentionChecks);
 const pairingCodes = new Map<string, number>();
 const attempts = new Map<string, { count: number; resetAt: number }>();
 const allowedIntervals = new Set([1, 5, 15, 30, 60]);
+const latestExtensionVersion = (() => {
+  try { return String(JSON.parse(fs.readFileSync(config.extensionManifestPath, "utf8")).version || ""); }
+  catch { return ""; }
+})();
 
 await app.register(formbody);
 
@@ -138,7 +142,7 @@ app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }> } }>("/api/
     lastCheckNewCount: monitor.lastCheckNewCount, activeClientsCount: monitor.activeClientsCount,
     notificationsEnabled: store.areNotificationsEnabledForClient(monitor.id, clientId)
   }));
-  return reply.send({ updated, monitors: synchronized, notifications: store.pullNotifications(clientId) });
+  return reply.send({ updated, monitors: synchronized, notifications: store.pullNotifications(clientId), latestExtensionVersion });
 });
 
 app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extension/monitors/:id/results", async (request, reply) => {

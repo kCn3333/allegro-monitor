@@ -1,7 +1,22 @@
 <!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="popup.css"><title>Allegro Monitor</title></head><body>
-<main><header><div><h1>Allegro Monitor</h1><p id="extension-version"></p></div><span id="connection" class="pill">Łączenie…</span></header>
-<section id="pairing" hidden><h2>Połącz z serwerem</h2><label>Adres serwera<input id="backend" type="url" value="https://allegro-monitor.kcn333.com"></label><label>Kod parowania<input id="code" maxlength="9" placeholder="ABCD-1234"></label><button id="pair">Połącz</button><p class="hint">Kod wygenerujesz na stronie instalacyjnej panelu.</p></section>
-<section id="connected" hidden><h2>Dodaj bieżącą kartę</h2><label>Nazwa<input id="name" placeholder="np. Yukio Mishima"></label><label>Interwał<select id="interval"><option value="1">1 minuta</option><option value="5" selected>5 minut</option><option value="15">15 minut</option><option value="30">30 minut</option><option value="60">60 minut</option></select></label><button id="add">Monitoruj tę kartę</button></section>
-<section id="watched-section" hidden><div class="section-title"><h2>Obserwowane karty</h2><div class="section-buttons"><button class="link" id="sync" title="Pobierz aktualną listę monitorów">Odśwież</button><button class="link" id="check-all">Sprawdź</button></div></div><div id="watched"></div></section>
-<section id="new-section" hidden><div class="section-title"><h2>Nowe oferty</h2><button class="link" id="clear">Wyczyść</button></div><div id="unread"></div></section>
-<p id="message"></p></main><script src="popup.js"></script></body></html>
+<main>
+  <nav class="tabs" aria-label="Nawigacja rozszerzenia">
+    <button class="tab active" data-tab="home">Monitor</button>
+    <button class="tab" data-tab="watched">Obserwowane</button>
+    <button class="tab" data-tab="offers">Nowe <span id="unread-count" hidden></span></button>
+  </nav>
+  <div class="tab-panel active" data-panel="home">
+    <header><div><h1>Allegro Monitor</h1><p id="extension-version"></p><p id="version-status" class="version-status">Sprawdzanie wersji…</p></div><span id="connection" class="pill">Łączenie…</span></header>
+    <section id="pairing" hidden><h2>Połącz z serwerem</h2><label>Adres serwera<input id="backend" type="url" value="https://allegro-monitor.kcn333.com"></label><label>Kod parowania<input id="code" maxlength="9" placeholder="ABCD-1234"></label><button id="pair">Połącz</button><p class="hint">Kod wygenerujesz na stronie instalacyjnej panelu.</p></section>
+    <section id="connected" hidden><h2>Dodaj bieżącą kartę</h2><label>Nazwa<input id="name" placeholder="np. Yukio Mishima"></label><label>Interwał<select id="interval"><option value="1">1 minuta</option><option value="5" selected>5 minut</option><option value="15">15 minut</option><option value="30">30 minut</option><option value="60">60 minut</option></select></label><button id="add">Monitoruj tę kartę</button></section>
+  </div>
+  <div class="tab-panel" data-panel="watched" hidden>
+    <div class="section-title panel-title"><div><h2>Obserwowane karty</h2><p>Wspólna lista z serwera</p></div><button class="link" id="sync" title="Pobierz aktualną listę monitorów">Odśwież</button></div>
+    <div id="watched"></div><p class="empty" id="watched-empty" hidden>Nie ma jeszcze żadnych monitorów.</p>
+  </div>
+  <div class="tab-panel" data-panel="offers" hidden>
+    <div class="section-title panel-title"><div><h2>Nowe oferty</h2><p>Powiadomienia odebrane na tym urządzeniu</p></div><button class="link" id="clear">Wyczyść</button></div>
+    <div id="unread"></div><p class="empty" id="unread-empty" hidden>Brak nowych ofert.</p>
+  </div>
+  <p id="message"></p>
+</main><script src="popup.js"></script></body></html>

@@ -166,7 +166,7 @@ async function reportPresence() {
   const knownEvents = new Set(current.unread.map(item => item.eventId).filter(Boolean));
   const freshNotifications = incoming.filter(item => !knownEvents.has(item.eventId));
   const unread = [...freshNotifications.map(item => ({ ...item, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
-  await chrome.storage.local.set({ watched, unread });
+  await chrome.storage.local.set({ watched, unread, latestExtensionVersion: response.latestExtensionVersion || "" });
   if (freshNotifications.length) {
     const first = freshNotifications[0];
     await chrome.notifications.create(`event-${first.eventId}`, {
