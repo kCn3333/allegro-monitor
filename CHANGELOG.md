@@ -4,6 +4,12 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 1.0.1 — 2026-08-05
+
+- Dodano stabilny, wewnętrzny obszar przewijania dla długich list monitorów i
+  nowych ofert.
+- Nagłówek aktywnej listy pozostaje widoczny podczas przewijania.
+
 ## 1.0.0 — 2026-08-05
 
 - Popup rozszerzenia podzielono na zakładki: Monitor, Obserwowane i Nowe.
