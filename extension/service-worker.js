@@ -199,6 +199,11 @@ function extractListings() {
   if (/potwierd(?:ź|z).{0,40}(?:człowiekiem|czlowiekiem)|zostałeś zablokowany|zostales zablokowany|captcha/i.test(text)) {
     return { blocked: true, listings: [] };
   }
+  const normalizedText = text.replace(/\s+/g, " ");
+  const explicitEmpty = /teraz nie mamy dokładnie tego, czego szukasz|nie znaleźliśmy (?:żadnych )?(?:wyników|ofert)|nie znaleziono (?:żadnych )?(?:wyników|ofert)|brak (?:wyników|ofert) dla/i.test(normalizedText);
+  const recommendationHeading = [...document.querySelectorAll("h1, h2, h3, h4")].find(element =>
+    /^(?:rekomendacje dla ciebie|znaleźliśmy podobne oferty)$/i.test((element.textContent || "").replace(/\s+/g, " ").trim())
+  );
   const found = new Map();
   function findProductImage(card, anchor) {
     const candidates = [...new Set([...(anchor?.querySelectorAll("img") || []), ...(card?.querySelectorAll("img") || [])])];
@@ -221,7 +226,9 @@ function extractListings() {
   const offerAnchors = anchors.filter(anchor => {
     try {
       const url = new URL(anchor.href, location.href);
-      return url.hostname.endsWith("allegro.pl") && (/^\/oferta\//.test(url.pathname) || /^\/produkt\//.test(url.pathname));
+      const isOffer = url.hostname.endsWith("allegro.pl") && (/^\/oferta\//.test(url.pathname) || /^\/produkt\//.test(url.pathname));
+      const belowRecommendations = recommendationHeading && Boolean(recommendationHeading.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return isOffer && !belowRecommendations;
     }
     catch { return false; }
   });
@@ -243,6 +250,7 @@ function extractListings() {
   }
   return {
     blocked: false,
+    empty: explicitEmpty || (Boolean(recommendationHeading) && found.size === 0),
     listings: [...found.values()],
     diagnostic: {
       url: location.href,
@@ -261,7 +269,7 @@ async function readListings(tabId, timeoutMs = 30000) {
   do {
     const execution = await chrome.scripting.executeScript({ target: { tabId }, func: extractListings });
     lastResult = execution[0]?.result;
-    if (lastResult?.blocked || lastResult?.listings?.length) return lastResult;
+    if (lastResult?.blocked || lastResult?.empty || lastResult?.listings?.length) return lastResult;
     await new Promise(resolve => setTimeout(resolve, 2000));
   } while (Date.now() < deadline);
   return lastResult;
@@ -297,7 +305,7 @@ async function checkOne(watch) {
     await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` });
     throw new Error("Captcha lub blokada w karcie Allegro");
   }
-  if (!result.listings.length) {
+  if (!result.empty && !result.listings.length) {
     const details = result.diagnostic || {};
     throw new Error(`Nie znaleziono ofert (linki: ${details.anchors ?? 0}, linki ofert: ${details.offerAnchors ?? 0}, strona: ${details.title || details.url || "nieznana"})`);
   }

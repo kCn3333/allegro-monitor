@@ -4,6 +4,13 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 1.0.2 — 2026-08-20
+
+- Puste wyniki wyszukiwania są traktowane jako poprawne sprawdzenie z zerową
+  liczbą ofert, a nie jako błąd odczytu.
+- Oferty z sekcji „Rekomendacje dla Ciebie” i „Znaleźliśmy podobne oferty” nie
+  trafiają do monitorowania ani powiadomień.
+
 ## 1.0.1 — 2026-08-05
 
 - Dodano stabilny, wewnętrzny obszar przewijania dla długich list monitorów i

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Allegro Monitor Companion",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Monitoruje otwarte wyszukiwania Allegro i przekazuje nowe oferty do prywatnego serwera.",
   "permissions": ["alarms", "storage", "tabs", "scripting", "notifications"],
   "host_permissions": [
