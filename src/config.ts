@@ -20,5 +20,6 @@ export const config = {
   telegramChatIds: chatIds(process.env.TELEGRAM_CHAT_IDS || process.env.TELEGRAM_CHAT_ID || ""),
   listingRetentionChecks: positiveInteger(process.env.LISTING_RETENTION_CHECKS, 5),
   username: process.env.APP_USERNAME || "",
-  password: process.env.APP_PASSWORD || ""
+  password: process.env.APP_PASSWORD || "",
+  sessionSecret: process.env.APP_SESSION_SECRET || ""
 };

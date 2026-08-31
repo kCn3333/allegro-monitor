@@ -48,6 +48,16 @@ export class Store {
         last_seen_at TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS web_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        credential_fingerprint TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_web_sessions_expires ON web_sessions(expires_at);
     `);
     this.migrateLegacySchema();
     this.ensureCurrentColumns();
@@ -294,6 +304,30 @@ export class Store {
     if (!client) return null;
     this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), client.id);
     return client.id;
+  }
+
+  createWebSession(tokenHash: string, credentialFingerprint: string, durationSeconds: number): void {
+    const now = new Date();
+    this.db.prepare(`INSERT INTO web_sessions
+      (token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES(?,?,?,?,?,?)`)
+      .run(tokenHash, credentialFingerprint, durationSeconds,
+        new Date(now.getTime() + durationSeconds * 1000).toISOString(), now.toISOString(), now.toISOString());
+  }
+
+  touchWebSession(tokenHash: string, credentialFingerprint: string): number | null {
+    const now = new Date();
+    this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
+    const session = this.db.prepare(`SELECT id,duration_seconds durationSeconds FROM web_sessions
+      WHERE token_hash=? AND credential_fingerprint=? AND expires_at>?`)
+      .get(tokenHash, credentialFingerprint, now.toISOString()) as { id: number; durationSeconds: number } | undefined;
+    if (!session) return null;
+    this.db.prepare("UPDATE web_sessions SET expires_at=?,last_used_at=? WHERE id=?")
+      .run(new Date(now.getTime() + session.durationSeconds * 1000).toISOString(), now.toISOString(), session.id);
+    return session.durationSeconds;
+  }
+
+  deleteWebSession(tokenHash: string): void {
+    this.db.prepare("DELETE FROM web_sessions WHERE token_hash=?").run(tokenHash);
   }
 
   linkMonitorClient(monitorId: number, clientId: number, tabOpen = true): void {

@@ -12,7 +12,7 @@ Zmiany w kolejnych wersjach opisuje [historia wydań](CHANGELOG.md).
 - badge, powiadomienia systemowe i podświetlanie nowych ofert;
 - SQLite bez osobnego serwera bazy;
 - proste GUI bez frameworka frontendowego;
-- powiadomienia Telegram do wielu prywatnych czatów lub grup oraz Basic Auth;
+- powiadomienia Telegram do wielu prywatnych czatów lub grup oraz bezpieczne logowanie z opcją zapamiętania urządzenia;
 - obraz Docker oraz GitHub Actions.
 
 ## Uruchomienie lokalne
@@ -43,16 +43,17 @@ export TELEGRAM_BOT_TOKEN="..."
 export TELEGRAM_CHAT_IDS="123456789,-1001234567890"
 export APP_USERNAME="admin"
 export APP_PASSWORD="..."
+export APP_SESSION_SECRET="losowy-sekret-o-dlugosci-minimum-32-znakow"
 docker compose up -d
 ```
 
 Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu; najlepiej ograniczyć go firewallem do hosta lub sieci Dockera. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
-W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `APP_USERNAME` i silne `APP_PASSWORD`; odbiorców określa `TELEGRAM_CHAT_IDS`. Opcjonalne `APP_PORT`, `IMAGE_TAG`, `LISTING_RETENTION_CHECKS` i `BIND_ADDRESS` mają wartości domyślne odpowiednio `3000`, `latest`, `5` oraz `0.0.0.0`. Jeśli `cloudflared` działa na hoście, ustaw `BIND_ADDRESS=127.0.0.1`; przy osobnym kontenerze pozostaw adres dostępny z jego sieci i ogranicz port firewallem.
+W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `APP_USERNAME`, silne `APP_PASSWORD` oraz losowy `APP_SESSION_SECRET` mający co najmniej 32 znaki; odbiorców określa `TELEGRAM_CHAT_IDS`. Zmiana hasła lub sekretu unieważnia wszystkie aktywne sesje panelu. Opcjonalne `APP_PORT`, `IMAGE_TAG`, `LISTING_RETENTION_CHECKS` i `BIND_ADDRESS` mają wartości domyślne odpowiednio `3000`, `latest`, `5` oraz `0.0.0.0`. Jeśli `cloudflared` działa na hoście, ustaw `BIND_ADDRESS=127.0.0.1`; przy osobnym kontenerze pozostaw adres dostępny z jego sieci i ogranicz port firewallem.
 
 ## Baza i retencja
 
-SQLite przechowuje konfigurację monitorów, skróty tokenów sparowanych rozszerzeń oraz metadane znalezionych pozycji: identyfikator Allegro, tytuł, URL, cenę, adres miniatury, pierwszy i ostatni czas obecności oraz liczbę kolejnych nieobecności. Nie przechowuje cookies, historii przeglądania, haseł Allegro ani tokenu Telegrama.
+SQLite przechowuje konfigurację monitorów, skróty tokenów sparowanych rozszerzeń, hashe tokenów sesji panelu oraz metadane znalezionych pozycji: identyfikator Allegro, tytuł, URL, cenę, adres miniatury, pierwszy i ostatni czas obecności oraz liczbę kolejnych nieobecności. Nie przechowuje jawnych tokenów sesji, cookies, historii przeglądania, haseł Allegro ani tokenu Telegrama.
 
 Pozycja nadal widoczna w wynikach pozostaje punktem odniesienia. Pozycja nieobecna przez `LISTING_RETENTION_CHECKS` kolejnych udanych odczytów jest usuwana, domyślnie po pięciu. Dzięki temu baza obejmuje głównie aktualny zestaw wyników i krótki bufor, zamiast rosnąć bez ograniczeń. Licznik `+N` monitora jest sumą nowych pozycji wykrytych od utworzenia punktu odniesienia i nie maleje podczas retencji.
 
@@ -68,7 +69,8 @@ Każde sparowane rozszerzenie co minutę oraz po zdarzeniu otwarcia lub zamknię
 
 ## Bezpieczeństwo
 
-- panel i strona parowania wymagają Basic Auth, a API rozszerzenia osobnego losowego tokenu przechowywanego w Vivaldi;
+- panel i strona parowania wymagają logowania; opcja „Zapamiętaj mnie” używa 30-dniowego, automatycznie odnawianego cookie `HttpOnly`, `Secure` i `SameSite=Strict`, którego token jest przechowywany w SQLite wyłącznie jako hash;
+- bez zaznaczenia opcji sesja jest cookie sesyjnym przeglądarki, a przycisk „Wyloguj” natychmiast unieważnia ją w bazie; API rozszerzenia używa oddzielnego losowego tokenu przechowywanego w Vivaldi;
 - próby logowania i parowania są limitowane, formularze administracyjne odrzucają żądania cross-site, a odpowiedzi zawierają nagłówki ochronne;
 - kontener działa bez roota, bez Linux capabilities, z systemem plików tylko do odczytu, limitem zasobów i rotacją logów;
 - Cloudflare Tunnel powinien być jedyną drogą z Internetu; nie wystawiaj portu `APP_PORT` na routerze;

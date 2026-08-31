@@ -42,6 +42,26 @@ test("counts new listings and removes entries missing from consecutive checks", 
   }
 });
 
+test("stores, renews and revokes hashed web sessions", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-session-"));
+  const databasePath = path.join(directory, "test.sqlite");
+  let store = new Store(databasePath);
+  try {
+    store.createWebSession("token-hash", "credentials-v1", 3600);
+    assert.equal(store.touchWebSession("token-hash", "credentials-v1"), 3600);
+    store.close();
+    store = new Store(databasePath);
+    assert.equal(store.touchWebSession("token-hash", "credentials-v1"), 3600);
+    assert.equal(store.touchWebSession("raw-token", "credentials-v1"), null);
+    assert.equal(store.touchWebSession("token-hash", "credentials-v2"), null);
+    store.deleteWebSession("token-hash");
+    assert.equal(store.touchWebSession("token-hash", "credentials-v1"), null);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
 test("excludes one exact product without treating it as new after restore", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-exclusion-"));
   const store = new Store(path.join(directory, "test.sqlite"));

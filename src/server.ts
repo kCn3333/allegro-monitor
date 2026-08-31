@@ -6,12 +6,13 @@ import { config } from "./config.js";
 import { Store } from "./database.js";
 import { renderFaq } from "./faq.js";
 import { notifyTelegram } from "./notifications.js";
-import { isSameOriginRequest } from "./security.js";
-import { renderPage } from "./ui.js";
+import { credentialFingerprint, expiredSessionCookie, isSameOriginRequest, safeCredentialsEqual,
+  sessionCookie, sessionTokenFromCookie, tokenHash } from "./security.js";
+import { renderLogin, renderPage } from "./ui.js";
 import { assertAllegroUrl, validateListings } from "./validation.js";
 
-if (process.env.NODE_ENV === "production" && (!config.username || !config.password)) {
-  throw new Error("APP_USERNAME i APP_PASSWORD są wymagane w środowisku produkcyjnym");
+if (process.env.NODE_ENV === "production" && (!config.username || !config.password || config.sessionSecret.length < 32)) {
+  throw new Error("APP_USERNAME, APP_PASSWORD i APP_SESSION_SECRET (minimum 32 znaki) są wymagane w środowisku produkcyjnym");
 }
 
 const app = Fastify({ logger: true, bodyLimit: 256_000 });
@@ -26,14 +27,9 @@ const latestExtensionVersion = (() => {
 
 await app.register(formbody);
 
-function validBasic(request: FastifyRequest): boolean {
-  if (!config.username || !config.password) return true;
-  const expected = `Basic ${Buffer.from(`${config.username}:${config.password}`).toString("base64")}`;
-  const actual = request.headers.authorization || "";
-  return actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
-}
+const secureCookies = process.env.NODE_ENV === "production";
+const webCredentialFingerprint = credentialFingerprint(config.username, config.password, config.sessionSecret || "development-session-secret");
 
-function tokenHash(token: string): string { return crypto.createHash("sha256").update(token).digest("hex"); }
 function extensionClientId(request: FastifyRequest, reply: FastifyReply): number | null {
   const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
   const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
@@ -66,15 +62,44 @@ app.addHook("onRequest", async (request, reply) => {
   });
   const path = request.url.split("?", 1)[0];
   if (path === "/health" || path === "/api/extension/pair" || path === "/api/extension/presence" || path?.startsWith("/api/extension/monitors")) return;
-  if (!validBasic(request)) {
-    if (!allowAttempt(`basic:${request.ip}`, 20, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób logowania");
-    return reply.header("WWW-Authenticate", 'Basic realm="Allegro Monitor"').code(401).send("Logowanie wymagane");
+  if (path === "/login") {
+    if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
+    return;
   }
-  attempts.delete(`basic:${request.ip}`);
-  if (request.method === "POST" && path?.startsWith("/monitors/") && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
+  if (!config.username || !config.password) return;
+  const token = sessionTokenFromCookie(request.headers.cookie);
+  const duration = token ? store.touchWebSession(tokenHash(token), webCredentialFingerprint) : null;
+  if (!duration) return reply.redirect("/login");
+  if (path !== "/logout") reply.header("Set-Cookie", sessionCookie(token!, duration > 24 * 60 * 60, secureCookies));
+  if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
 });
 
 app.get("/health", async () => ({ status: "ok" }));
+app.get("/login", async (request, reply) => {
+  if (!config.username || !config.password) return reply.redirect("/");
+  const token = sessionTokenFromCookie(request.headers.cookie);
+  if (token && store.touchWebSession(tokenHash(token), webCredentialFingerprint)) return reply.redirect("/");
+  return reply.type("text/html; charset=utf-8").send(renderLogin());
+});
+app.post<{ Body: { username?: string; password?: string; remember?: string } }>("/login", async (request, reply) => {
+  const username = String(request.body?.username || "").slice(0, 100);
+  const password = String(request.body?.password || "").slice(0, 500);
+  if (!safeCredentialsEqual(username, password, config.username, config.password)) {
+    if (!allowAttempt(`login:${request.ip}`, 20, 15 * 60_000)) return reply.code(429).type("text/html; charset=utf-8").send(renderLogin(true));
+    return reply.code(401).type("text/html; charset=utf-8").send(renderLogin(true));
+  }
+  attempts.delete(`login:${request.ip}`);
+  const remember = request.body?.remember === "yes";
+  const duration = remember ? 30 * 24 * 60 * 60 : 12 * 60 * 60;
+  const token = crypto.randomBytes(32).toString("base64url");
+  store.createWebSession(tokenHash(token), webCredentialFingerprint, duration);
+  return reply.header("Set-Cookie", sessionCookie(token, remember, secureCookies)).redirect("/");
+});
+app.post("/logout", async (request, reply) => {
+  const token = sessionTokenFromCookie(request.headers.cookie);
+  if (token) store.deleteWebSession(tokenHash(token));
+  return reply.header("Set-Cookie", expiredSessionCookie(secureCookies)).redirect("/login");
+});
 app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions())));
 app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
 
