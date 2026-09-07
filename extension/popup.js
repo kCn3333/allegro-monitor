@@ -21,14 +21,14 @@ function showTab(name) {
 }
 
 async function render() {
-  const data = await chrome.storage.local.get({ token:"", watched:[], unread:[], latestExtensionVersion:"" });
+  const data = await chrome.storage.local.get({ token:"", watched:[], unread:[], latestExtensionVersion:"", connection:"paired", lastSyncAt:null });
   $("#extension-version").textContent = `Wersja ${localVersion}`;
   const versionStatus = $("#version-status");
   if (!data.latestExtensionVersion) { versionStatus.textContent = "Nie udało się sprawdzić aktualności"; versionStatus.className = "version-status"; }
   else if (compareVersions(localVersion, data.latestExtensionVersion) >= 0) { versionStatus.textContent = "✓ Najnowsza wersja"; versionStatus.className = "version-status current"; }
   else { versionStatus.textContent = `Dostępna wersja ${data.latestExtensionVersion}`; versionStatus.className = "version-status outdated"; }
-  $("#pairing").hidden = Boolean(data.token); $("#connected").hidden = !data.token;
-  $("#connection").textContent = data.token ? "Połączono" : "Brak połączenia";
+  $("#pairing").hidden = Boolean(data.token) && data.connection !== "unauthorized"; $("#connected").hidden = !data.token;
+  $("#connection").textContent = !data.token ? "Niesparowane" : data.connection === "unauthorized" ? "Token odrzucony — sparuj ponownie" : `${data.connection === "online" ? "Połączono" : "Sparowane · serwer niedostępny"}${data.lastSyncAt ? ` · synchronizacja: ${new Date(data.lastSyncAt).toLocaleString("pl")}` : " · brak udanej synchronizacji"}`;
   $("#watched-empty").hidden = data.watched.length > 0;
   $("#unread-empty").hidden = data.unread.length > 0;
   $("#clear").hidden = data.unread.length === 0;
@@ -37,7 +37,7 @@ async function render() {
   $("#watched").innerHTML = data.watched.map(item => {
     const notificationsEnabled = item.notificationsEnabled !== false;
     const tabOpen = item.tabOpen !== false;
-    return `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Karta zamknięta"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || !notificationsEnabled ? "disabled" : ""} title="${!notificationsEnabled ? "Włącz powiadomienia, aby sprawdzić ręcznie" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">Sprawdź teraz</button><label class="notify-control"><span>Powiadomienia na tym urządzeniu</span><input type="checkbox" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track"></span></label></div></div>`;
+    return `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Brak zgodnej karty"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || item.enabled === false ? "disabled" : ""} title="${item.enabled === false ? "Monitor wstrzymany" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">Sprawdź teraz</button><label class="notify-control"><span>Powiadomienia na tym urządzeniu</span><input type="checkbox" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track"></span></label></div></div>`;
   }).join("");
   $("#unread").innerHTML = data.unread.map(item => `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><span>${esc(item.monitorName)} · ${esc(item.price || "Cena nieznana")}</span></div>`).join("");
 }
@@ -50,7 +50,7 @@ $("#clear").addEventListener("click", async () => { await send({type:"clear-unre
 document.addEventListener("click", async event => {
   const open=event.target.dataset?.open, check=event.target.dataset?.check;
   if(open){const data=await chrome.storage.local.get({watched:[]});const item=data.watched.find(watch=>watch.monitorId===Number(open));if(item?.tabId)await chrome.tabs.update(item.tabId,{active:true});else if(item?.url)await chrome.tabs.create({url:item.url});window.close();}
-  if(check){await send({type:"check",monitorId:Number(check)});window.close();}
+  if(check){message("Sprawdzanie…");const response=await send({type:"check",monitorId:Number(check)});message(response.ok?"Sprawdzono":response.error,response.ok?"ok":"error");await render();}
 });
 document.addEventListener("change", async event => {
   const monitorId=event.target.dataset?.notifications;if(!monitorId)return;

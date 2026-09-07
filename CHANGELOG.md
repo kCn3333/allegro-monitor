@@ -4,6 +4,17 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 1.1.0 — niewydane
+
+- Dokładne dopasowanie adresu karty wraz z filtrami i ponowna kontrola przed zapisem wyników.
+- Serializowane zapisy stanu rozszerzenia i synchronizacje, bez nadpisywania nowych ustawień przez zakończone sprawdzanie.
+- Trwałe partie powiadomień z ACK, deduplikacja po czyszczeniu listy i odbiór niezależny dla urządzeń; zgodność ze starszym protokołem.
+- Transakcyjna kolejka Telegrama z osobnymi statusami odbiorców, timeoutami, ponowieniami i odzyskiwaniem po restarcie.
+- Blokada logowania sprawdzana przed hasłem, limit pamięci i nagłówek Retry-After.
+- Widoczny stan łączności i czas synchronizacji; ręczne sprawdzanie niezależne od wyciszenia.
+- Migracja zachowująca istniejące dane; najpierw aktualizacja backendu, potem rozszerzenia.
+- Testy mechanizmów backendu i rozszerzenia na mockach oraz istniejącym schemacie SQLite.
+
 ## 1.0.2 — 2026-08-20
 
 - Puste wyniki wyszukiwania są traktowane jako poprawne sprawdzenie z zerową

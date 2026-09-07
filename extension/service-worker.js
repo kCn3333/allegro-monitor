@@ -2,9 +2,30 @@ const ALARM = "allegro-monitor-tick";
 const DEFAULT_BACKEND = "https://allegro-monitor.kcn333.com";
 let checking = false;
 let presenceTimer = null;
+let writes = Promise.resolve();
+let synchronization = Promise.resolve();
+// Only this service worker writes storage. Never hold the storage queue across network I/O.
+function mutateState(update) {
+  const operation = writes.then(async () => {
+    const current = await state();
+    const patch = update(current);
+    await chrome.storage.local.set(patch);
+    return patch;
+  });
+  writes = operation.catch(() => {});
+  return operation;
+}
+function synchronize(operation) {
+  const pending = synchronization.then(operation);
+  synchronization = pending.catch(() => {});
+  return pending;
+}
+const backgroundPresence = () => reportPresence().catch(() => {});
 
 async function state() {
-  return chrome.storage.local.get({ backendUrl: DEFAULT_BACKEND, token: "", watched: [], unread: [] });
+  const current = await chrome.storage.local.get({ backendUrl: DEFAULT_BACKEND, token: "", watched: [], unread: [] });
+  current.receivedThrough ??= Math.max(0, ...current.unread.map(item => Number(item.eventId) || 0));
+  return current;
 }
 
 async function ensureAlarm() {
@@ -19,14 +40,14 @@ async function updateActionBadge() {
   await chrome.action.setBadgeText({ text: unread.length ? (unread.length > 99 ? "+99" : `+${unread.length}`) : "" });
 }
 
-async function initialize() { await ensureAlarm(); await reportPresence(); }
+async function initialize() { await ensureAlarm(); await backgroundPresence(); }
 chrome.runtime.onInstalled.addListener(() => { void initialize(); });
 chrome.runtime.onStartup.addListener(() => { void initialize(); });
 chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === ALARM) void tick(); });
 
 function schedulePresence() {
   if (presenceTimer) clearTimeout(presenceTimer);
-  presenceTimer = setTimeout(() => { presenceTimer = null; void reportPresence(); }, 500);
+  presenceTimer = setTimeout(() => { presenceTimer = null; void backgroundPresence(); }, 500);
 }
 
 chrome.tabs.onRemoved.addListener(schedulePresence);
@@ -37,7 +58,7 @@ function normalizeBackend(value) { return value.trim().replace(/\/$/, ""); }
 function isAllegroResultsPage(value) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.endsWith("allegro.pl")
+    return url.protocol === "https:" && (url.hostname === "allegro.pl" || url.hostname.endsWith(".allegro.pl"))
       && (url.pathname === "/listing" || url.pathname.startsWith("/kategoria/"));
   } catch { return false; }
 }
@@ -64,14 +85,8 @@ function searchTerm(value) {
 }
 
 function findMatchingTab(tabs, watch) {
-  const wantedTerm = searchTerm(watch.url);
-  const knownTab = tabs.find(tab => tab.id === watch.tabId && tab.url && isAllegroResultsPage(tab.url)
-    && (!searchTerm(tab.url) || searchTerm(tab.url) === wantedTerm));
-  if (knownTab) return knownTab;
-  const exact = tabs.find(tab => tab.url && matchesWatch(tab.url, watch.url));
-  if (exact) return exact;
-  const sameTerm = tabs.filter(tab => tab.url && wantedTerm && searchTerm(tab.url) === wantedTerm && canonicalSearchUrl(tab.url));
-  return sameTerm.length === 1 ? sameTerm[0] : null;
+  return tabs.find(tab => tab.id === watch.tabId && matchesWatch(tab.url, watch.url))
+    || tabs.find(tab => matchesWatch(tab.url, watch.url)) || null;
 }
 
 async function resolveSearchUrl(tab) {
@@ -101,13 +116,18 @@ async function api(path, options = {}) {
   if (!token) throw new Error("Rozszerzenie nie jest sparowane");
   const response = await fetch(`${normalizeBackend(backendUrl)}${path}`, {
     ...options,
+    signal: AbortSignal.timeout(15000),
     headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...(options.headers || {}) }
   });
-  if (!response.ok) throw new Error((await response.text()) || `Błąd serwera ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(response.status === 401 ? "Token odrzucony — sparuj ponownie" : `Błąd serwera ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 
-async function pair(backendUrl, code) {
+async function pair(backendUrl, code) { return synchronize(async () => {
   const url = normalizeBackend(backendUrl || DEFAULT_BACKEND);
   const response = await fetch(`${url}/api/extension/pair`, {
     method: "POST", headers: { "content-type": "application/json" },
@@ -115,32 +135,40 @@ async function pair(backendUrl, code) {
   });
   if (!response.ok) throw new Error((await response.text()) || "Nie udało się sparować");
   const { token } = await response.json();
-  await chrome.storage.local.set({ backendUrl: url, token });
+  await mutateState(() => ({ backendUrl: url, token, unread: [], receivedThrough: 0, connection: "paired", lastSyncAt: null }));
   return true;
-}
+}); }
 
-async function addCurrentTab(name, intervalMinutes) {
+async function addCurrentTab(name, intervalMinutes) { return synchronize(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const searchUrl = tab ? await resolveSearchUrl(tab) : null;
   if (!tab?.id || !searchUrl) throw new Error("Otwórz kartę z wynikami wyszukiwania Allegro");
   const created = await api("/api/extension/monitors", {
     method: "POST", body: JSON.stringify({ name: name.trim() || tab.title || "Allegro", url: searchUrl, intervalMinutes })
   });
-  const data = await state();
+  await mutateState(data => {
   const watched = data.watched.filter(item => item.monitorId !== created.id && item.url !== searchUrl);
   watched.push({ monitorId: created.id, tabId: tab.id, url: searchUrl, name: created.name, intervalMinutes, newListingsCount: created.newListingsCount || 0, lastCheckNewCount: created.lastCheckNewCount || 0, nextCheckAt: Date.now() });
-  await chrome.storage.local.set({ watched });
+  return { watched };
+  });
   return created;
-}
+}); }
 
 async function findTab(watch) {
   const tabs = await chrome.tabs.query({});
   return findMatchingTab(tabs, watch);
 }
 
-async function reportPresence() {
+function reportPresence() { return synchronize(async () => {
+  try { return await performPresence(); }
+  catch (error) {
+    await mutateState(() => ({ connection: error.status === 401 ? "unauthorized" : "offline" }));
+    throw error;
+  }
+}); }
+async function performPresence() {
   const data = await state();
-  if (!data.token) return null;
+  if (!data.token) throw new Error("Rozszerzenie nie jest sparowane");
   const tabs = await chrome.tabs.query({});
   const monitors = data.watched.map(watch => {
     const tab = findMatchingTab(tabs, watch);
@@ -148,9 +176,11 @@ async function reportPresence() {
     watch.tabOpen = Boolean(tab);
     return { id: watch.monitorId, open: watch.tabOpen };
   });
-  const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors }) }).catch(() => null);
-  if (!response?.monitors) return null;
-  const localById = new Map(data.watched.map(watch => [watch.monitorId, watch]));
+  const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors, notificationProtocol: 2 }) });
+  if (!Array.isArray(response?.monitors)) throw new Error("Nieprawidłowa odpowiedź synchronizacji");
+  let freshNotifications = [];
+  const patch = await mutateState(current => {
+  const localById = new Map(current.watched.map(watch => [watch.monitorId, watch]));
   const watched = response.monitors.map(monitor => {
     const local = localById.get(monitor.id) || {};
     const tab = findMatchingTab(tabs, { ...local, url: monitor.url });
@@ -162,35 +192,47 @@ async function reportPresence() {
       nextCheckAt: local.nextCheckAt ?? Date.now() };
   });
   const incoming = Array.isArray(response.notifications) ? response.notifications : [];
-  const current = await state();
-  const knownEvents = new Set(current.unread.map(item => item.eventId).filter(Boolean));
-  const freshNotifications = incoming.filter(item => !knownEvents.has(item.eventId));
-  const unread = [...freshNotifications.map(item => ({ ...item, seenAt: new Date().toISOString() })), ...current.unread].slice(0, 100);
-  await chrome.storage.local.set({ watched, unread, latestExtensionVersion: response.latestExtensionVersion || "" });
+  // Keep a durable high-water mark even after the unread list is cleared.
+  // Apply backpressure instead of silently discarding received events.
+  const capacity = Math.max(0, 100 - current.unread.length);
+  freshNotifications = incoming.filter(item => item.eventId > current.receivedThrough).slice(0, capacity);
+  const unread = [...freshNotifications.map(item => ({ ...item, seenAt: new Date().toISOString() })), ...current.unread];
+  const receivedThrough = Math.max(current.receivedThrough, ...freshNotifications.map(item => item.eventId));
+  return { watched, unread, receivedThrough, latestExtensionVersion: response.latestExtensionVersion || "" };
+  });
+  const incoming = Array.isArray(response.notifications) ? response.notifications : [];
+  const batch = response.notificationBatch;
+  if (batch && incoming.every(item => item.eventId <= patch.receivedThrough)) {
+    await api("/api/extension/notifications/ack", { method: "POST", body: JSON.stringify({ batchId: batch }) });
+  }
+  await mutateState(() => ({ connection: "online", lastSyncAt: Date.now() }));
   if (freshNotifications.length) {
     const first = freshNotifications[0];
     await chrome.notifications.create(`event-${first.eventId}`, {
       type: "basic", iconUrl: "icon-128.png",
       title: freshNotifications.length === 1 ? `Nowa oferta: ${first.monitorName}` : `Nowe oferty (${freshNotifications.length})`,
       message: `${first.title}${first.price ? ` — ${first.price}` : ""}`
-    });
+    }).catch(() => {});
   }
   await updateActionBadge();
   return response;
 }
 
 async function tick() {
-  await reportPresence();
+  await backgroundPresence();
   await checkDue();
 }
 
-function waitForLoad(tabId, timeoutMs = 45000) {
+function waitForLoad(tabId, timeoutMs = 45000, trigger = () => {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); reject(new Error("Przekroczono czas ładowania karty")); }, timeoutMs);
     function listener(id, info) {
       if (id === tabId && info.status === "complete") { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve(); }
     }
     chrome.tabs.onUpdated.addListener(listener);
+    Promise.resolve().then(trigger).catch(error => {
+      clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); reject(error);
+    });
   });
 }
 
@@ -226,7 +268,7 @@ function extractListings() {
   const offerAnchors = anchors.filter(anchor => {
     try {
       const url = new URL(anchor.href, location.href);
-      const isOffer = url.hostname.endsWith("allegro.pl") && (/^\/oferta\//.test(url.pathname) || /^\/produkt\//.test(url.pathname));
+      const isOffer = (url.hostname === "allegro.pl" || url.hostname.endsWith(".allegro.pl")) && (/^\/oferta\//.test(url.pathname) || /^\/produkt\//.test(url.pathname));
       const belowRecommendations = recommendationHeading && Boolean(recommendationHeading.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING);
       return isOffer && !belowRecommendations;
     }
@@ -292,13 +334,12 @@ function markNewOffers(ids) {
 
 async function checkOne(watch) {
   const tab = await findTab(watch);
-  if (!tab?.id) throw new Error(`Karta „${watch.name}” jest zamknięta`);
+  if (!tab?.id) throw new Error(`Brak zgodnej karty „${watch.name}”: karta zamknięta lub zmienione filtry`);
   watch.tabId = tab.id;
   await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
-  const loaded = waitForLoad(tab.id);
-  if (canonicalSearchUrl(tab.url)) await chrome.tabs.reload(tab.id);
-  else await chrome.tabs.update(tab.id, { url: watch.url });
-  await loaded;
+  if (!matchesWatch((await chrome.tabs.get(tab.id)).url, watch.url)) throw new Error("Adres karty zmienił się przed odświeżeniem");
+  await waitForLoad(tab.id, 45000, () => chrome.tabs.reload(tab.id));
+  if (!matchesWatch((await chrome.tabs.get(tab.id)).url, watch.url)) throw new Error("Adres karty zmienił się przed odczytem");
   const result = await readListings(tab.id);
   if (!result) throw new Error("Nie udało się odczytać zawartości karty Allegro");
   if (result.blocked) {
@@ -309,6 +350,12 @@ async function checkOne(watch) {
     const details = result.diagnostic || {};
     throw new Error(`Nie znaleziono ofert (linki: ${details.anchors ?? 0}, linki ofert: ${details.offerAnchors ?? 0}, strona: ${details.title || details.url || "nieznana"})`);
   }
+  const currentTab = await chrome.tabs.get(tab.id);
+  if (!matchesWatch(currentTab.url, watch.url) || !matchesWatch(result.diagnostic?.url, watch.url)) {
+    throw new Error("Adres karty zmienił się podczas odczytu — wyniki pominięte");
+  }
+  const currentWatch = (await state()).watched.find(item => item.monitorId === watch.monitorId);
+  if (!currentWatch || currentWatch.enabled === false || !matchesWatch(currentWatch.url, watch.url)) return 0;
   const response = await api(`/api/extension/monitors/${watch.monitorId}/results`, { method: "POST", body: JSON.stringify({ listings: result.listings }) });
   const fresh = response.newListings || [];
   watch.newListingsCount = Number(response.newListingsCount) || 0;
@@ -322,24 +369,33 @@ async function checkOne(watch) {
 }
 
 async function checkDue(forceMonitorId = null) {
-  if (checking) return;
+  if (checking) { if (forceMonitorId !== null) throw new Error("Sprawdzanie już trwa"); return; }
   checking = true;
   try {
     const data = await state();
-    if (!data.token) return;
-    for (const watch of data.watched) {
-      if (watch.enabled === false || watch.tabOpen === false) continue;
+    if (!data.token) throw new Error("Rozszerzenie nie jest sparowane");
+    if (forceMonitorId !== null) {
+      const selected = data.watched.find(item => item.monitorId === forceMonitorId);
+      if (!selected || selected.enabled === false) throw new Error("Monitor usunięty lub wstrzymany");
+    }
+    for (const snapshot of data.watched) {
+      const watch = (await state()).watched.find(item => item.monitorId === snapshot.monitorId);
+      if (!watch || watch.enabled === false) continue;
       if (forceMonitorId !== null ? watch.monitorId !== forceMonitorId : watch.nextCheckAt > Date.now()) continue;
       try { await checkOne(watch); }
       catch (error) {
         watch.nextCheckAt = Date.now() + Math.max(watch.intervalMinutes, 10) * 60_000;
-        if (/jest zamknięta/i.test(error.message)) await reportPresence();
+        if (/Brak zgodnej karty/i.test(error.message)) await backgroundPresence();
         else await api(`/api/extension/monitors/${watch.monitorId}/error`, { method: "POST", body: JSON.stringify({ message: error.message }) }).catch(() => {});
+        if (forceMonitorId !== null) throw error;
         if (/captcha|blokada/i.test(error.message)) break;
       }
+      await mutateState(current => ({ watched: current.watched.map(item => item.monitorId === watch.monitorId && matchesWatch(item.url, watch.url)
+        ? { ...item, nextCheckAt: watch.nextCheckAt } : item) }));
+      if (forceMonitorId !== null) break;
       await new Promise(resolve => setTimeout(resolve, 12000 + Math.random() * 10000));
     }
-    await chrome.storage.local.set({ watched: data.watched });
+
   } finally { checking = false; }
 }
 
@@ -350,11 +406,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "sync") { await reportPresence(); return true; }
     if (message.type === "notification-state") {
-      await api(`/api/extension/monitors/${message.monitorId}/notification-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) });
+      await synchronize(() => api(`/api/extension/monitors/${message.monitorId}/notification-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) }));
       await reportPresence();
       return true;
     }
-    if (message.type === "clear-unread") { await chrome.storage.local.set({ unread: [] }); await updateActionBadge(); return true; }
+    if (message.type === "clear-unread") { await mutateState(() => ({ unread: [] })); await updateActionBadge(); return true; }
     throw new Error("Nieznana operacja");
   })().then(result => sendResponse({ ok: true, result })).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
