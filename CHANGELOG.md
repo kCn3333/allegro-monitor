@@ -4,6 +4,13 @@ Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
 rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
 zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 
+## 1.1.1 — niewydane
+
+- Harmonogram po błędzie jest utrwalany przed przerwaniem cyklu przez captcha lub zwróceniem błędu ręcznego sprawdzania, także przy niedostępnym backendzie.
+- Próba ma trwały identyfikator i termin odzyskania (minimum 10 minut lub interwał monitora). Restart workera nie uruchamia natychmiast ponownego odczytu; inne wymagalne monitory mogą działać.
+- Po przyjęciu wyników harmonogram jest zapisywany przed podświetleniem i synchronizacją powiadomień; ich awarie nie zmieniają udanego sprawdzenia w błąd odczytu.
+- Etykieta „Nowa” wynika z cyklu sprawdzenia, niezależnie od rozdzielczości zegara. Migracja zachowuje dane, liczniki i punkt odniesienia, zerując wyłącznie niejednoznaczne historyczne etykiety.
+
 ## 1.1.0 — niewydane
 
 - Dokładne dopasowanie adresu karty wraz z filtrami i ponowna kontrola przed zapisem wyników.

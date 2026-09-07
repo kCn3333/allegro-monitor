@@ -343,7 +343,7 @@ async function checkOne(watch) {
   const result = await readListings(tab.id);
   if (!result) throw new Error("Nie udało się odczytać zawartości karty Allegro");
   if (result.blocked) {
-    await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` });
+    await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` }).catch(() => {});
     throw new Error("Captcha lub blokada w karcie Allegro");
   }
   if (!result.empty && !result.listings.length) {
@@ -355,17 +355,29 @@ async function checkOne(watch) {
     throw new Error("Adres karty zmienił się podczas odczytu — wyniki pominięte");
   }
   const currentWatch = (await state()).watched.find(item => item.monitorId === watch.monitorId);
-  if (!currentWatch || currentWatch.enabled === false || !matchesWatch(currentWatch.url, watch.url)) return 0;
+  if (!currentWatch || currentWatch.enabled === false || !matchesWatch(currentWatch.url, watch.url)) return null;
   const response = await api(`/api/extension/monitors/${watch.monitorId}/results`, { method: "POST", body: JSON.stringify({ listings: result.listings }) });
-  const fresh = response.newListings || [];
-  watch.newListingsCount = Number(response.newListingsCount) || 0;
-  watch.lastCheckNewCount = Number(response.lastCheckNewCount) || 0;
-  if (fresh.length) {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: markNewOffers, args: [fresh.map(item => item.externalId)] });
-    await reportPresence();
-  }
-  watch.nextCheckAt = Date.now() + watch.intervalMinutes * 60_000;
-  return fresh.length;
+  return { fresh: response.newListings || [], tabId: tab.id };
+}
+
+async function beginAttempt(watch, forced) {
+  const attemptId = crypto.randomUUID();
+  const patch = await mutateState(current => ({ watched: current.watched.map(item => {
+    if (item.monitorId !== watch.monitorId || !matchesWatch(item.url, watch.url) || item.enabled === false
+      || item.attemptUntil > Date.now() || (!forced && item.nextCheckAt > Date.now())) return item;
+    // Persist before any tab/network work. An interrupted attempt becomes eligible again at this deadline.
+    const attemptUntil = Date.now() + Math.max(item.intervalMinutes, 10) * 60_000;
+    return { ...item, attemptId, attemptUntil, nextCheckAt: attemptUntil };
+  }) }));
+  return patch.watched.find(item => item.attemptId === attemptId);
+}
+
+async function finishAttempt(watch, failed) {
+  await mutateState(current => ({ watched: current.watched.map(item =>
+    item.monitorId === watch.monitorId && item.attemptId === watch.attemptId && matchesWatch(item.url, watch.url)
+      ? { ...item, attemptId: null, attemptUntil: null,
+        nextCheckAt: Date.now() + (failed ? Math.max(item.intervalMinutes, 10) : item.intervalMinutes) * 60_000 }
+      : item) }));
 }
 
 async function checkDue(forceMonitorId = null) {
@@ -379,19 +391,31 @@ async function checkDue(forceMonitorId = null) {
       if (!selected || selected.enabled === false) throw new Error("Monitor usunięty lub wstrzymany");
     }
     for (const snapshot of data.watched) {
-      const watch = (await state()).watched.find(item => item.monitorId === snapshot.monitorId);
+      let watch = (await state()).watched.find(item => item.monitorId === snapshot.monitorId);
       if (!watch || watch.enabled === false) continue;
       if (forceMonitorId !== null ? watch.monitorId !== forceMonitorId : watch.nextCheckAt > Date.now()) continue;
-      try { await checkOne(watch); }
+      watch = await beginAttempt(watch, forceMonitorId !== null);
+      if (!watch) {
+        if (forceMonitorId !== null) throw new Error("Próba w toku lub oczekiwanie na odzyskanie po przerwaniu");
+        continue;
+      }
+      let result;
+      try { result = await checkOne(watch); }
       catch (error) {
-        watch.nextCheckAt = Date.now() + Math.max(watch.intervalMinutes, 10) * 60_000;
+        await finishAttempt(watch, true);
         if (/Brak zgodnej karty/i.test(error.message)) await backgroundPresence();
         else await api(`/api/extension/monitors/${watch.monitorId}/error`, { method: "POST", body: JSON.stringify({ message: error.message }) }).catch(() => {});
         if (forceMonitorId !== null) throw error;
         if (/captcha|blokada/i.test(error.message)) break;
       }
-      await mutateState(current => ({ watched: current.watched.map(item => item.monitorId === watch.monitorId && matchesWatch(item.url, watch.url)
-        ? { ...item, nextCheckAt: watch.nextCheckAt } : item) }));
+      // On failure the attempt is already finished, so this is a no-op for its old id.
+      await finishAttempt(watch, false);
+      if (result?.fresh.length) {
+        // Auxiliary failures must not turn an accepted check into a failed read.
+        await chrome.scripting.executeScript({ target: { tabId: result.tabId }, func: markNewOffers,
+          args: [result.fresh.map(item => item.externalId)] }).catch(() => {});
+        await backgroundPresence();
+      }
       if (forceMonitorId !== null) break;
       await new Promise(resolve => setTimeout(resolve, 12000 + Math.random() * 10000));
     }
