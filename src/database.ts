@@ -165,6 +165,10 @@ export class Store {
 
   private ensureCurrentColumns(): void {
     const columns = new Set((this.db.prepare("PRAGMA table_info(monitors)").all() as Array<{ name: string }>).map(column => column.name));
+    if (!columns.has("check_cycle")) this.db.exec("ALTER TABLE monitors ADD COLUMN check_cycle INTEGER NOT NULL DEFAULT 0");
+    const listingColumns = new Set((this.db.prepare("PRAGMA table_info(listings)").all() as Array<{ name: string }>).map(column => column.name));
+    // Historical timestamp labels are ambiguous. NULL clears only those labels, not data or counters.
+    if (!listingColumns.has("new_in_cycle")) this.db.exec("ALTER TABLE listings ADD COLUMN new_in_cycle INTEGER");
     if (!columns.has("last_check_new_count")) this.db.exec("ALTER TABLE monitors ADD COLUMN last_check_new_count INTEGER NOT NULL DEFAULT 0");
   }
 
@@ -250,6 +254,8 @@ export class Store {
     const fresh: Listing[] = [];
     this.db.exec("BEGIN");
     try {
+      const { cycle } = this.db.prepare("UPDATE monitors SET check_cycle=check_cycle+1 WHERE id=? RETURNING check_cycle cycle")
+        .get(monitor.id) as { cycle: number };
       this.db.prepare("UPDATE listings SET missing_checks=missing_checks+1 WHERE monitor_id=?").run(monitor.id);
       for (const listing of listings) {
         const result = insert.run(monitor.id, listing.externalId, listing.title, listing.url,
@@ -257,6 +263,8 @@ export class Store {
         markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
         if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) {
           fresh.push(listing);
+          this.db.prepare("UPDATE listings SET new_in_cycle=? WHERE monitor_id=? AND external_id=?")
+            .run(cycle, monitor.id, listing.externalId);
           for (const chatId of new Set(telegramChatIds)) {
             this.db.prepare("INSERT INTO telegram_jobs(chat_id,payload,available_at) VALUES(?,?,?)")
               .run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), Date.now());
@@ -453,7 +461,7 @@ export class Store {
   recentListings(limit = 50): Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }> {
     return this.db.prepare(`SELECT l.external_id externalId,l.title,l.url,l.price,l.image_url imageUrl,l.monitor_id monitorId,
       l.first_seen_at firstSeenAt,m.name monitorName,
-      CASE WHEN m.last_check_new_count>0 AND l.first_seen_at=m.last_checked_at THEN 1 ELSE 0 END fromLatestCheck
+      CASE WHEN m.last_check_new_count>0 AND l.new_in_cycle=m.check_cycle THEN 1 ELSE 0 END fromLatestCheck
       FROM listings l JOIN monitors m ON m.id=l.monitor_id
       WHERE NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)
       ORDER BY l.first_seen_at DESC LIMIT ?`).all(limit) as unknown as Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>;

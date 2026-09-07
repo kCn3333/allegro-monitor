@@ -144,3 +144,20 @@ Testy używają Fastify inject, tymczasowych baz (w tym schematu z audytowanego
 commita), mocków Telegrama i rzeczywistego skryptu rozszerzenia w kontekście VM
 z mockiem API Chromium. Nie zastępują testu w prawdziwej przeglądarce ani
 integracji z Allegro/Telegramem.
+
+### Aktualizacja 1.1.1
+
+Zaktualizuj backend, a następnie przeładuj rozszerzenie **1.1.1**. Kontrakt ACK
+pozostaje bez zmian; komponenty po PR #2 są zgodne podczas aktualizacji.
+Migracja dodaje `monitors.check_cycle` i `listings.new_in_cycle`. Zachowuje
+oferty, punkt odniesienia (`initialized`), liczniki i kolejki; usuwa tylko
+niejednoznaczne historyczne etykiety „Nowa”, bez odtwarzania alertów.
+
+Przed odświeżeniem karty rozszerzenie zapisuje identyfikator próby i termin
+odzyskania: 10 minut lub interwał monitora, jeśli jest dłuższy. Po przerwaniu
+workera czeka do tego terminu, również przy ręcznej próbie wznowienia. Po
+zakończonym błędzie automat stosuje tę samą przerwę liczoną od błędu; po
+sukcesie obowiązuje zwykły interwał. Podświetlenie i synchronizacja powiadomień
+nie wpływają na zapisany sukces. Jeśli backend przyjął wyniki tuż przed
+przerwaniem lokalnego zapisu, następny odczyt nastąpi dopiero po terminie
+odzyskania. To lokalna ochrona harmonogramu, bez koordynacji urządzeń.
