@@ -1,17 +1,21 @@
 # Historia wydań
 
-Historia została odtworzona na podstawie commitów i kolejnych numerów wersji
-rozszerzenia. Wersje `0.x` opisują rozwój prototypu i mogą zawierać zmiany
-zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
+Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązane
+zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
+Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
-## 1.1.1 — niewydane
+## 1.1.1 — 2026-09-07
+
+[PR #3](https://github.com/kCn3333/allegro-monitor/pull/3)
 
 - Harmonogram po błędzie jest utrwalany przed przerwaniem cyklu przez captcha lub zwróceniem błędu ręcznego sprawdzania, także przy niedostępnym backendzie.
 - Próba ma trwały identyfikator i termin odzyskania (minimum 10 minut lub interwał monitora). Restart workera nie uruchamia natychmiast ponownego odczytu; inne wymagalne monitory mogą działać.
 - Po przyjęciu wyników harmonogram jest zapisywany przed podświetleniem i synchronizacją powiadomień; ich awarie nie zmieniają udanego sprawdzenia w błąd odczytu.
 - Etykieta „Nowa” wynika z cyklu sprawdzenia, niezależnie od rozdzielczości zegara. Migracja zachowuje dane, liczniki i punkt odniesienia, zerując wyłącznie niejednoznaczne historyczne etykiety.
 
-## 1.1.0 — niewydane
+## 1.1.0 — 2026-09-07
+
+[PR #2](https://github.com/kCn3333/allegro-monitor/pull/2)
 
 - Dokładne dopasowanie adresu karty wraz z filtrami i ponowna kontrola przed zapisem wyników.
 - Serializowane zapisy stanu rozszerzenia i synchronizacje, bez nadpisywania nowych ustawień przez zakończone sprawdzanie.
@@ -21,6 +25,13 @@ zarówno rozszerzenia, jak i współpracującej z nim aplikacji serwerowej.
 - Widoczny stan łączności i czas synchronizacji; ręczne sprawdzanie niezależne od wyciszenia.
 - Migracja zachowująca istniejące dane; najpierw aktualizacja backendu, potem rozszerzenia.
 - Testy mechanizmów backendu i rozszerzenia na mockach oraz istniejącym schemacie SQLite.
+
+## Backend — 2026-08-31
+
+- Zastąpiono Basic Auth formularzem logowania i trwałymi sesjami SQLite; „Zapamiętaj mnie” utrzymuje odnawianą sesję przez 30 dni.
+- Tokeny sesji są przechowywane jako hashe. Wylogowanie unieważnia sesję, a zmiana danych logowania lub sekretu unieważnia wszystkie sesje panelu.
+- Dodano wymagany w produkcji `APP_SESSION_SECRET` oraz cookies `HttpOnly`, `SameSite=Strict` i `Secure` w produkcji.
+- Dodano spersonalizowane powitanie i poprawiono jego wyśrodkowanie na stronie logowania.
 
 ## 1.0.2 — 2026-08-20
 
