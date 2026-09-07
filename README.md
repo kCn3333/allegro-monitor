@@ -49,7 +49,7 @@ docker compose up -d
 
 Port aplikacji jest publikowany na wszystkich interfejsach hosta, aby mógł się z nim połączyć Cloudflare Tunnel działający w osobnym kontenerze. Nie należy przekierowywać tego portu na routerze bezpośrednio do Internetu; najlepiej ograniczyć go firewallem do hosta lub sieci Dockera. Baza SQLite jest przechowywana w nazwanym wolumenie Docker `allegro-monitor-data`.
 
-W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `TELEGRAM_BOT_TOKEN`, `APP_USERNAME`, silne `APP_PASSWORD` oraz losowy `APP_SESSION_SECRET` mający co najmniej 32 znaki; odbiorców określa `TELEGRAM_CHAT_IDS`. Zmiana hasła lub sekretu unieważnia wszystkie aktywne sesje panelu. Opcjonalne `APP_PORT`, `IMAGE_TAG`, `LISTING_RETENTION_CHECKS` i `BIND_ADDRESS` mają wartości domyślne odpowiednio `3000`, `latest`, `5` oraz `0.0.0.0`. Jeśli `cloudflared` działa na hoście, ustaw `BIND_ADDRESS=127.0.0.1`; przy osobnym kontenerze pozostaw adres dostępny z jego sieci i ogranicz port firewallem.
+W Portainerze wartości należy dodać w sekcji **Environment variables** stacka. Wymagane są `APP_USERNAME`, silne `APP_PASSWORD` oraz losowy `APP_SESSION_SECRET` mający co najmniej 32 znaki; opcjonalny Telegram używa `TELEGRAM_BOT_TOKEN` i odbiorców z `TELEGRAM_CHAT_IDS`. Zmiana hasła lub sekretu unieważnia wszystkie aktywne sesje panelu. Opcjonalne `APP_PORT`, `IMAGE_TAG`, `LISTING_RETENTION_CHECKS` i `BIND_ADDRESS` mają wartości domyślne odpowiednio `3000`, `latest`, `5` oraz `0.0.0.0`. Jeśli `cloudflared` działa na hoście, ustaw `BIND_ADDRESS=127.0.0.1`; przy osobnym kontenerze pozostaw adres dostępny z jego sieci i ogranicz port firewallem.
 
 ## Baza i retencja
 
@@ -90,3 +90,57 @@ Na serwerze katalog `/opt/allegro-monitor` powinien zawierać `compose.yml`. Dan
 ## Ograniczenia
 
 Vivaldi musi być uruchomiony, a komputer nie może być uśpiony. Rozszerzenie nie omija captcha: pozostawia kartę do ręcznej weryfikacji i wstrzymuje pozostałe sprawdzenia w danym cyklu. Interwał jednej minuty jest dostępny, ale zwiększa liczbę odświeżeń i ryzyko blokady Allegro; do stałej pracy rozsądniejszy jest interwał 5–15 minut.
+
+## Niezawodność i aktualizacja 1.1.0
+
+Najpierw zaktualizuj backend, następnie rozszerzenia do **1.1.0** (przeładuj je
+w menedżerze rozszerzeń). Migracja SQLite dodaje `notification_batches` i
+`telegram_jobs`; zachowuje monitory, wykluczenia, urządzenia, wyciszenia i sesje.
+Nie wymaga ponownego parowania. Zwykły start to `npm start` (punkt wejścia
+`dist/src/main.js`). Przed aktualizacją wykonaj standardową kopię bazy.
+
+Rozszerzenie 1.1.0 negocjuje `notificationProtocol: 2`. Serwer utrwala partię
+maksymalnie 50 zdarzeń, a rozszerzenie zapisuje ją przed uwierzytelnionym ACK.
+ACK zawiera losowy identyfikator partii przypisany do urządzenia, nigdy dowolny
+kursor. Powtórzenie pobrania/ACK jest bezpieczne. Trwały znacznik `eventId`
+chroni przed duplikatami także po wyczyszczeniu nieprzeczytanych i restarcie.
+Lista lokalna mieści 100 pozycji: gdy jest pełna, odbiór czeka na jej
+wyczyszczenie i nie potwierdza niezapisanych zdarzeń. Zdarzenia i oczekujące
+partie mają retencję 30 dni, egzekwowaną przy pobieraniu. Dłuższa nieobecność
+lub pełna lista mogą więc oznaczać wygaśnięcie zaległych powiadomień.
+Starsze rozszerzenia nadal używają odbioru bez ACK (z dotychczasowym ryzykiem
+utraty odpowiedzi), ale nie otrzymują bez końca tych samych zdarzeń.
+Ochrona ACK wymaga obu nowych komponentów; nie aktualizuj rozszerzenia przed
+backendem. Lokalne powiadomienie systemowe jest dodatkiem do trwałej listy;
+jego wyświetlenie przez system nie jest potwierdzane.
+
+Telegram korzysta z trwałej kolejki, zapisywanej w tej samej transakcji co nowe
+oferty. Endpoint wyników nie czeka na Telegram. Jeden worker na proces wysyła
+jedno zadanie naraz; każde wywołanie ma timeout 10 s. Ponowienia mają rosnący
+odstęp (do godziny), respektują `retry_after` dla 429 i kończą się najpóźniej
+po 12 próbach. Błędy trwałe 4xx (poza 408/429) kończą zadanie; błąd 400 zdjęcia
+pozwala raz przejść na tekst. 429 i błędy sieci nie uruchamiają tego obejścia.
+Odbiorcy mają osobne statusy. Zadanie przerwane restartem wraca po wygaśnięciu
+60-sekundowej dzierżawy. Zakończone zadania są usuwane po 30 dniach podczas
+pracy workera. Brak tokenu wyłącza worker i tworzenie nowych zadań Telegrama,
+bez wyłączania monitorowania. Nie ma gwarancji „exactly once”: niejednoznaczny
+timeout lub restart po wysłaniu, ale przed zapisem sukcesu, może dać duplikat.
+
+Karta musi mieć zgodny adres: domenę Allegro, ścieżkę i wszystkie parametry,
+w tym cenę, kategorię i paginację. Kolejność parametrów i fragment nie mają
+znaczenia. Zmiana filtrów nie powoduje nawigacji do starego adresu. Popup
+rozróżnia sparowanie, udaną synchronizację, niedostępny serwer i odrzucony token.
+Ręczne sprawdzanie działa również przy wyciszonych lokalnych powiadomieniach.
+
+Limit logowania blokuje po 20 błędach w 15 minut, również dla poprawnego hasła,
+z `429` i `Retry-After`. Pamięć limitera mieści najwyżej 10 000 wpisów, wygasłe
+wpisy są usuwane przy żądaniach; przy zapełnieniu nowe adresy są blokowane do
+zwolnienia miejsca. Limit jest lokalny dla procesu i zeruje się po restarcie.
+Zaufanie do proxy pozostaje wyłączone: nagłówki z adresem klienta nie zmieniają
+klucza limitu. Za proxy jego użytkownicy mogą współdzielić limit adresu proxy.
+
+Weryfikacja lokalna na Node.js 22: `npm test`, `npm run check`, `npm run build`.
+Testy używają Fastify inject, tymczasowych baz (w tym schematu z audytowanego
+commita), mocków Telegrama i rzeczywistego skryptu rozszerzenia w kontekście VM
+z mockiem API Chromium. Nie zastępują testu w prawdziwej przeglądarce ani
+integracji z Allegro/Telegramem.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -81,6 +82,17 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
       CREATE INDEX IF NOT EXISTS idx_listings_seen ON listings(first_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_missing ON listings(monitor_id, missing_checks);
+      CREATE TABLE IF NOT EXISTS notification_batches (
+        client_id INTEGER PRIMARY KEY REFERENCES extension_clients(id) ON DELETE CASCADE,
+        batch_id TEXT NOT NULL, through_id INTEGER NOT NULL, events TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS telegram_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT NOT NULL, payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        available_at INTEGER NOT NULL, finished_at INTEGER, last_error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_telegram_due ON telegram_jobs(status,available_at);
       CREATE TABLE IF NOT EXISTS notification_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
@@ -226,7 +238,7 @@ export class Store {
       .all(new Date().toISOString()) as unknown as Monitor[];
   }
 
-  saveCheck(monitor: Monitor, listings: Listing[]): Listing[] {
+  saveCheck(monitor: Monitor, listings: Listing[], telegramChatIds: string[] = []): Listing[] {
     const now = new Date().toISOString();
     const excluded = new Set((this.db.prepare("SELECT external_id externalId FROM monitor_exclusions WHERE monitor_id=?").all(monitor.id) as Array<{ externalId: string }>).map(item => item.externalId));
     const insert = this.db.prepare(`INSERT OR IGNORE INTO listings
@@ -245,6 +257,10 @@ export class Store {
         markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
         if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) {
           fresh.push(listing);
+          for (const chatId of new Set(telegramChatIds)) {
+            this.db.prepare("INSERT INTO telegram_jobs(chat_id,payload,available_at) VALUES(?,?,?)")
+              .run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), Date.now());
+          }
           addEvent.run(monitor.id, listing.externalId, listing.title, listing.url, listing.price, listing.imageUrl, now);
         }
       }
@@ -369,21 +385,65 @@ export class Store {
       .run(monitorId, clientId, enabled ? 1 : 0, new Date().toISOString());
   }
 
-  pullNotifications(clientId: number): Array<Listing & { eventId: number; monitorId: number; monitorName: string }> {
-    const client = this.db.prepare("SELECT last_notification_event_id lastEventId FROM extension_clients WHERE id=?")
-      .get(clientId) as { lastEventId: number } | undefined;
-    if (!client) return [];
-    const latest = Number((this.db.prepare("SELECT COALESCE(MAX(id),0) latest FROM notification_events").get() as { latest: number }).latest);
-    const events = this.db.prepare(`SELECT e.id eventId,e.monitor_id monitorId,m.name monitorName,e.external_id externalId,
+  notificationBatch(clientId: number): { batchId: string; events: Array<Listing & { eventId: number; monitorId: number; monitorName: string }> } {
+    this.pruneNotifications();
+    const existing = this.db.prepare("SELECT batch_id batchId,events FROM notification_batches WHERE client_id=?")
+      .get(clientId) as { batchId: string; events: string } | undefined;
+    if (existing) return { batchId: existing.batchId, events: JSON.parse(existing.events).filter((event: { monitorId: number }) => this.areNotificationsEnabledForClient(event.monitorId, clientId)) };
+    const client = this.db.prepare("SELECT last_notification_event_id cursor FROM extension_clients WHERE id=?").get(clientId) as { cursor: number } | undefined;
+    if (!client) throw new Error("Unknown notification client");
+    // Bound scanned rows too; muted events advance only when this batch is acknowledged.
+    const rows = this.db.prepare(`SELECT e.id eventId,e.monitor_id monitorId,m.name monitorName,e.external_id externalId,
       e.title,e.url,e.price,e.image_url imageUrl FROM notification_events e JOIN monitors m ON m.id=e.monitor_id
-      WHERE e.id>? AND COALESCE((SELECT mc.notifications_enabled FROM monitor_clients mc
-        WHERE mc.monitor_id=e.monitor_id AND mc.client_id=?),1)=1 ORDER BY e.id`)
-      .all(client.lastEventId, clientId) as unknown as Array<Listing & { eventId: number; monitorId: number; monitorName: string }>;
-    this.db.prepare("UPDATE extension_clients SET last_notification_event_id=? WHERE id=?").run(latest, clientId);
-    const expiresBefore = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
-    this.db.prepare(`DELETE FROM notification_events WHERE created_at<? OR id<=
-      (SELECT COALESCE(MIN(last_notification_event_id),0) FROM extension_clients)`).run(expiresBefore);
-    return events;
+      WHERE e.id>? ORDER BY e.id LIMIT 50`).all(client.cursor) as unknown as Array<Listing & { eventId: number; monitorId: number; monitorName: string }>;
+    const events = rows.filter(event => this.areNotificationsEnabledForClient(event.monitorId, clientId));
+    const batchId = randomUUID();
+    this.db.prepare("INSERT INTO notification_batches(client_id,batch_id,through_id,events,created_at) VALUES(?,?,?,?,?)")
+      .run(clientId, batchId, rows.at(-1)?.eventId ?? client.cursor, JSON.stringify(events), new Date().toISOString());
+    return { batchId, events };
+  }
+
+  acknowledgeNotifications(clientId: number, batchId: string): boolean {
+    // Opaque capability bound to an authenticated client; never accept a caller-supplied cursor.
+    const batch = this.db.prepare("SELECT through_id cursor FROM notification_batches WHERE client_id=? AND batch_id=?")
+      .get(clientId, batchId) as { cursor: number } | undefined;
+    if (!batch) return false;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE extension_clients SET last_notification_event_id=MAX(last_notification_event_id,?) WHERE id=?").run(batch.cursor, clientId);
+      this.db.prepare("DELETE FROM notification_batches WHERE client_id=?").run(clientId);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    return true;
+  }
+
+  private pruneNotifications(): void {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    this.db.prepare("DELETE FROM notification_events WHERE created_at<?").run(cutoff);
+    this.db.prepare("DELETE FROM notification_batches WHERE created_at<?").run(cutoff);
+  }
+
+  pullNotifications(clientId: number): Array<Listing & { eventId: number; monitorId: number; monitorName: string }> {
+    const batch = this.notificationBatch(clientId);
+    this.acknowledgeNotifications(clientId, batch.batchId);
+    return batch.events;
+  }
+
+  claimTelegramJob(now = Date.now()): TelegramJob | undefined {
+    this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
+    // Lease also recovers work interrupted by process termination. One bounded worker per process.
+    const row = this.db.prepare(`UPDATE telegram_jobs SET status='sending',attempts=attempts+1,available_at=?
+      WHERE id=(SELECT id FROM telegram_jobs WHERE status IN ('pending','sending') AND available_at<=? ORDER BY id LIMIT 1)
+      RETURNING id,chat_id chatId,payload,attempts`).get(now + 60_000, now) as { id: number; chatId: string; payload: string; attempts: number } | undefined;
+    return row ? { ...row, ...JSON.parse(row.payload) } : undefined;
+  }
+
+  finishTelegramJob(job: TelegramJob, error?: { permanent: boolean; retryAfterMs: number; message: string }, now = Date.now()): void {
+    const terminal = !error || error.permanent || job.attempts >= 12;
+    this.db.prepare("UPDATE telegram_jobs SET status=?,available_at=?,finished_at=?,last_error=? WHERE id=? AND attempts=? AND status='sending'")
+      .run(!error ? "sent" : terminal ? "failed" : "pending",
+        now + Math.max(error?.retryAfterMs || 0, Math.min(3600_000, 1000 * 2 ** job.attempts)),
+        terminal ? now : null, error?.message || null, job.id, job.attempts);
   }
 
   unlinkMonitorClient(monitorId: number, clientId: number): void {
@@ -400,4 +460,8 @@ export class Store {
   }
 
   close(): void { this.db.close(); }
+}
+
+export interface TelegramJob {
+  id: number; chatId: string; monitorName: string; listing: Listing; attempts: number;
 }
