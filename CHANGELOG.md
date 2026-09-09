@@ -4,6 +4,12 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.1.2 — niewydane
+
+- Usunięto nieużywany harmonogram backendu oraz funkcje wywoływane wyłącznie przez testy. Historyczna kolumna `next_check_at` pozostaje zgodna z istniejącymi bazami; harmonogram prowadzi rozszerzenie.
+- Każda próba w `checkDue()` kończy się pojedynczym zapisem `finishAttempt()`, przed zgłoszeniem błędu lub przerwaniem cyklu.
+- Usunięto niepodłączony skrypt `allegro_auth.py` i ustawienia `ALLEGRO_*`. Testy dostarczania i obecności używają ścieżek stosowanych przez aplikację.
+
 ## 1.1.1 — 2026-09-07
 
 [PR #3](https://github.com/kCn3333/allegro-monitor/pull/3)

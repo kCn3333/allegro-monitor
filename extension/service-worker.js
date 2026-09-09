@@ -399,17 +399,17 @@ async function checkDue(forceMonitorId = null) {
         if (forceMonitorId !== null) throw new Error("Próba w toku lub oczekiwanie na odzyskanie po przerwaniu");
         continue;
       }
-      let result;
+      let result, failure;
       try { result = await checkOne(watch); }
-      catch (error) {
-        await finishAttempt(watch, true);
+      catch (error) { failure = error; }
+      await finishAttempt(watch, Boolean(failure));
+      if (failure) {
+        const error = failure;
         if (/Brak zgodnej karty/i.test(error.message)) await backgroundPresence();
         else await api(`/api/extension/monitors/${watch.monitorId}/error`, { method: "POST", body: JSON.stringify({ message: error.message }) }).catch(() => {});
         if (forceMonitorId !== null) throw error;
         if (/captcha|blokada/i.test(error.message)) break;
       }
-      // On failure the attempt is already finished, so this is a no-op for its old id.
-      await finishAttempt(watch, false);
       if (result?.fresh.length) {
         // Auxiliary failures must not turn an accepted check into a failed read.
         await chrome.scripting.executeScript({ target: { tabId: result.tabId }, func: markNewOffers,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { notifyTelegram } from "../src/notifications.js";
+import { deliverTelegram } from "../src/notifications.js";
 
 const listing = {
   externalId: "offer:123",
@@ -18,7 +18,7 @@ test("sends an offer as a photo card with a link button", async () => {
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   }) as typeof fetch;
   try {
-    await notifyTelegram("secret", ["123"], "Mishima", listing);
+    await deliverTelegram("secret", "123", "Mishima", listing);
     assert.equal(calls.length, 1);
     assert.match(calls[0]!.url, /\/sendPhoto$/);
     assert.equal(calls[0]!.body.photo, listing.imageUrl);
@@ -39,7 +39,7 @@ test("falls back to a text card when Telegram rejects the image", async () => {
     return new Response("{}", { status: calls.length === 1 ? 400 : 200 });
   }) as typeof fetch;
   try {
-    await notifyTelegram("secret", ["123"], "Mishima", listing);
+    await deliverTelegram("secret", "123", "Mishima", listing);
     assert.match(calls[0]!, /\/sendPhoto$/);
     assert.match(calls[1]!, /\/sendMessage$/);
   } finally {
