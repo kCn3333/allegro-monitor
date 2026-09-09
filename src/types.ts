@@ -14,7 +14,6 @@ export interface Monitor {
   enabled: number;
   initialized: number;
   lastCheckedAt: string | null;
-  nextCheckAt: string;
   lastError: string | null;
   createdAt: string;
   newListingsCount: number;

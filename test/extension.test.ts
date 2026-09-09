@@ -253,3 +253,18 @@ test("failing old attempt does not restore deletion or overwrite changed URL and
     }
   }
 });
+
+test("each completed attempt finishes exactly once, before reporting a failure", async () => {
+  for (const failed of [false, true]) {
+    const h = harness();
+    h.run("globalThis.finishes = 0; const originalFinish = finishAttempt; finishAttempt = async (...args) => { finishes++; return originalFinish(...args); }");
+    if (failed) h.read = async () => { throw Error("read failed"); };
+    h.request = async (path: string) => {
+      if (path.endsWith("/error")) assert.equal(h.run("finishes"), 1);
+      return {};
+    };
+    if (failed) await assert.rejects(h.run("checkDue(1)"), /read failed/);
+    else await h.run("checkDue(1)");
+    assert.equal(h.run("finishes"), 1);
+  }
+});

@@ -30,11 +30,6 @@ export async function deliverTelegram(token: string, chatId: string, monitorName
   await send("sendMessage", { text: caption, disable_web_page_preview: true });
 }
 
-export async function notifyTelegram(token: string, chatIds: string[], monitorName: string, listing: Listing): Promise<void> {
-  if (!token) return;
-  for (const chatId of chatIds) await deliverTelegram(token, chatId, monitorName, listing);
-}
-
 export class TelegramWorker {
   private running: Promise<void> | null = null;
   private timer?: ReturnType<typeof setInterval>;

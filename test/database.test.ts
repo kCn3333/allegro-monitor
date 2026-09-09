@@ -96,8 +96,8 @@ test("keeps a shared monitor active while another extension still has its tab op
     store.linkMonitorToAllClients(monitorId, firstClient);
     store.linkMonitorClient(monitorId, secondClient, true);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 2);
-    assert.equal(store.listMonitorsForClient(firstClient).length, 1);
-    assert.equal(store.listMonitorsForClient(secondClient).length, 1);
+    assert.equal(store.hasMonitorClient(monitorId, firstClient), true);
+    assert.equal(store.hasMonitorClient(monitorId, secondClient), true);
     assert.equal(store.areNotificationsEnabledForClient(monitorId, firstClient), true);
     store.setNotificationsForClient(monitorId, firstClient, false);
     assert.equal(store.areNotificationsEnabledForClient(monitorId, firstClient), false);
@@ -108,9 +108,8 @@ test("keeps a shared monitor active while another extension still has its tab op
 
     store.linkMonitorClient(monitorId, firstClient, false);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 1);
-    store.unlinkMonitorClient(monitorId, firstClient);
     assert.ok(store.getMonitor(monitorId));
-    store.unlinkMonitorClient(monitorId, secondClient);
+    store.linkMonitorClient(monitorId, secondClient, false);
     assert.ok(store.getMonitor(monitorId));
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
   } finally {
@@ -150,7 +149,7 @@ test("links an extension paired later to all existing monitors", () => {
     store.createMonitor("Istniejący", "https://allegro.pl/listing?string=test", 5);
     const clientId = store.addExtensionClient("Nowy Vivaldi", "hash-late");
     store.linkClientToAllMonitors(clientId);
-    assert.equal(store.listMonitorsForClient(clientId).length, 1);
+    assert.equal(store.hasMonitorClient(store.listMonitors()[0]!.id, clientId), true);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
   } finally {
     store.close();
