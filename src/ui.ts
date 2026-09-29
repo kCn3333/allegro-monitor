@@ -1,4 +1,4 @@
-import type { Listing, Monitor, MonitorExclusion } from "./types.js";
+import type { ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
 import { config } from "./config.js";
 
 const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -59,7 +59,7 @@ function offerCard(listing: Listing & { monitorId: number; monitorName: string; 
   </article>`;
 }
 
-export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>, exclusions: MonitorExclusion[]): string {
+export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>, exclusions: MonitorExclusion[], clients: ExtensionClient[] = []): string {
   const activeMonitors = monitors.filter(monitor => monitor.enabled && monitor.initialized && monitor.activeClientsCount > 0 && !monitor.lastError).length;
   return `<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light dark"><title>Allegro Monitor</title>
@@ -78,6 +78,11 @@ export function renderPage(monitors: Monitor[], listings: Array<Listing & { moni
     <section class="about"><span class="eyebrow">O aplikacji</span><h2>Lekki monitor nowych ofert Allegro</h2><p>Aplikacja współpracuje z rozszerzeniem Vivaldi, zapisuje znalezione oferty i wysyła powiadomienia o nowościach. Stworzyli ją wspólnie <strong>kCn</strong> i <strong>Codex</strong>.</p><p class="dedication">Powstała z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</p></section>
     <section><div class="section-head"><h2>Obserwowane wyszukiwania</h2><span>${activeMonitors}/${monitors.length} aktywnych</span></div>
       <div class="monitor-list">${monitors.length ? monitors.map(monitor => monitorCard(monitor, exclusions.filter(exclusion => exclusion.monitorId === monitor.id))).join("") : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Otwórz wyszukiwanie Allegro i dodaj je za pomocą rozszerzenia.</div>`}</div></section>
+    <section aria-labelledby="devices-title"><div class="section-head"><h2 id="devices-title">Sparowane urządzenia</h2><span>${clients.length}</span></div>
+      <p>Odłączenie odbiera urządzeniu dostęp do serwera. Wspólne monitory i historia pozostają; ponowne połączenie wymaga nowego kodu parowania.</p>
+      <div class="monitor-list">${clients.length ? clients.map(client => `<article class="monitor-card"><strong>${esc(client.name)} · #${client.id}</strong><p>Dodano: ${date(client.createdAt)}<br>Ostatnia aktywność: ${client.lastSeenAt ? date(client.lastSeenAt) : "Jeszcze nie połączono"}</p><form method="post" action="/devices/${client.id}/revoke" onsubmit="return confirm('Odłączyć to urządzenie?')"><button class="button danger">Odłącz urządzenie</button></form></article>`).join("") : '<div class="empty">Brak sparowanych urządzeń.</div>'}</div>
+      ${clients.length ? '<form method="post" action="/devices/revoke-all" onsubmit="return confirm(&quot;Odłączyć wszystkie urządzenia i unieważnić oczekujące kody parowania?&quot;)"><button class="button danger">Odłącz wszystkie urządzenia</button></form>' : ""}
+    </section>
     <section><div class="section-head"><h2>Ostatnio znalezione oferty</h2><span>maksymalnie 50</span></div>
       ${listings.length ? `<div class="offers">${listings.map(offerCard).join("")}</div>` : `<div class="empty"><strong>Tu pojawią się książki</strong>Pierwsze sprawdzenie tworzy punkt odniesienia i nie wysyła powiadomień.</div>`}</section>
   </main><script>

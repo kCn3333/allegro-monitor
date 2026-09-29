@@ -118,7 +118,7 @@ test("results endpoint commits recipient jobs without contacting Telegram; no co
 });
 
 test("migration from audited schema preserves monitors, exclusions, paired devices, settings and sessions", async t => {
-  const { dir, databasePath } = fixture(t);
+  const { databasePath } = fixture(t);
   const baseline = new DatabaseSync(databasePath);
   baseline.exec(fs.readFileSync("test/fixtures/audited-schema.sql", "utf8")); baseline.close();
   // Seed the old schema before running the migration.

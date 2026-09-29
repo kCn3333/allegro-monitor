@@ -4,6 +4,13 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## Backend — 2026-09-29
+
+- Zaktualizowano Fastify i zależności fast-uri do wersji z poprawkami bezpieczeństwa; CI sprawdza podatności zależności produkcyjnych.
+- Panel pokazuje sparowane urządzenia i umożliwia odwołanie jednego lub wszystkich tokenów, bez usuwania wspólnych monitorów. Odwołanie wszystkich usuwa też oczekujące kody parowania.
+- Poprawiono FAQ dotyczące blokady logowania i udokumentowano wybór adresu backendu przez rozszerzenie.
+- Ujednolicono wspólne kolumny zapytań monitorów i usunięto nieużywane dane diagnostyczne oraz zmienną testową. Historyczne kolumny i migracje pozostają obsługiwane.
+
 ## 1.1.2 — niewydane
 
 - Usunięto nieużywany harmonogram backendu oraz funkcje wywoływane wyłącznie przez testy. Historyczna kolumna `next_check_at` pozostaje zgodna z istniejącymi bazami; harmonogram prowadzi rozszerzenie.

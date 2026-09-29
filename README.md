@@ -43,6 +43,26 @@ Compose obsługuje `IMAGE_TAG` (domyślnie `latest`), `APP_PORT` (`3000`), `BIND
 
 Produkcja wymaga HTTPS. Port aplikacji powinien być dostępny tylko dla reverse proxy lub tunelu. `trustProxy` jest wyłączone: użytkownicy za jednym proxy współdzielą limit logowania — 20 błędów w 15 minut, potem `429` z `Retry-After`. Sesje panelu i tokeny rozszerzeń są oddzielne; serwer przechowuje ich hashe.
 
+## Dostęp urządzeń i adres serwera
+
+Panel pokazuje sparowane urządzenia, czas parowania i ostatnią aktywność.
+Można odłączyć jedno urządzenie lub wszystkie naraz. Odwołany token od razu
+przestaje działać; wspólne monitory i historia pozostają. Odłączenie wszystkich
+urządzeń unieważnia też oczekujące kody parowania. Sesja panelu pozostaje aktywna.
+Zmiana hasła panelu nie unieważnia tokenów rozszerzeń — należy je odwołać osobno.
+Istniejące parowania są zachowane po aktualizacji; tokeny nie wygasają automatycznie.
+
+Domyślny adres backendu jest zapisany w `extension/service-worker.js`
+(`DEFAULT_BACKEND`) oraz w polu adresu w `extension/popup.html`. Przy parowaniu
+popup przekazuje wpisany adres do workera. Po udanej odpowiedzi worker zapisuje
+`backendUrl` i token w `chrome.storage.local`; kolejne żądania API używają tego
+adresu i nagłówka `Authorization: Bearer ...`. Kod parowania nie zawiera adresu
+serwera, a pobranie ZIP-a z innej domeny nie zmienia konfiguracji rozszerzenia.
+Własny backend wymaga również dopasowania `host_permissions` w
+`extension/manifest.json`; sama zmiana pola adresu nie zapewnia uprawnień do
+komunikacji z dowolną domeną. Zapisany adres przetrwa restart i przeładowanie
+rozszerzenia, dopóki jego lokalna pamięć nie zostanie usunięta.
+
 ## Dostarczanie i retencja
 
 - **Rozszerzenie:** partie do 50 zdarzeń, trwały zapis przed ACK i deduplikacja po `eventId`. Lista mieści 100 nieprzeczytanych pozycji; po zapełnieniu trzeba ją wyczyścić, aby odebrać resztę. Zdarzenia i oczekujące partie wygasają po 30 dniach. Wyświetlenie powiadomienia przez system nie ma osobnego potwierdzenia.

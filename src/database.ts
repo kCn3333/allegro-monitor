@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Listing, Monitor, MonitorExclusion } from "./types.js";
+import type { ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
+
+const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
+      enabled, initialized, last_checked_at lastCheckedAt,
+      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
+      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
+      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount`;
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -173,11 +179,7 @@ export class Store {
 
   listMonitors(): Monitor[] {
     const activeSince = new Date(Date.now() - 3 * 60_000).toISOString();
-    return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
-      enabled, initialized, last_checked_at lastCheckedAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
-      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+    return this.db.prepare(`${MONITOR_COLUMNS},
       (SELECT COUNT(*) FROM monitor_clients mc WHERE mc.monitor_id=monitors.id AND mc.tab_open=1 AND mc.last_seen_at>=?) activeClientsCount
       FROM monitors ORDER BY created_at DESC`).all(activeSince) as unknown as Monitor[];
   }
@@ -190,21 +192,13 @@ export class Store {
   }
 
   getMonitor(id: number): Monitor | undefined {
-    return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
-      enabled, initialized, last_checked_at lastCheckedAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
-      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+    return this.db.prepare(`${MONITOR_COLUMNS},
       0 activeClientsCount
       FROM monitors WHERE id=?`).get(id) as unknown as Monitor | undefined;
   }
 
   findMonitorByUrl(url: string): Monitor | undefined {
-    return this.db.prepare(`SELECT id, name, url, interval_minutes intervalMinutes,
-      enabled, initialized, last_checked_at lastCheckedAt,
-      last_error lastError, created_at createdAt, new_listings_count newListingsCount, last_check_new_count lastCheckNewCount,
-      (SELECT COUNT(*) FROM listings l WHERE l.monitor_id=monitors.id AND l.missing_checks=0 AND NOT EXISTS (SELECT 1 FROM monitor_exclusions e WHERE e.monitor_id=l.monitor_id AND e.external_id=l.external_id)) currentListingsCount,
-      (SELECT COUNT(*) FROM monitor_exclusions e WHERE e.monitor_id=monitors.id) excludedListingsCount,
+    return this.db.prepare(`${MONITOR_COLUMNS},
       0 activeClientsCount
       FROM monitors WHERE url=? ORDER BY id LIMIT 1`).get(url) as unknown as Monitor | undefined;
   }
@@ -302,6 +296,20 @@ export class Store {
       VALUES(?,?,(SELECT COALESCE(MAX(id),0) FROM notification_events),?)`)
       .run(name.slice(0, 100), tokenHash, new Date().toISOString());
     return Number(result.lastInsertRowid);
+  }
+
+  listExtensionClients(): ExtensionClient[] {
+    return this.db.prepare(`SELECT id,name,created_at createdAt,last_seen_at lastSeenAt
+      FROM extension_clients ORDER BY id DESC`).all() as unknown as ExtensionClient[];
+  }
+
+  revokeExtensionClient(id: number): boolean {
+    // Foreign keys remove only this device's links and pending batch, not shared data.
+    return this.db.prepare("DELETE FROM extension_clients WHERE id=?").run(id).changes > 0;
+  }
+
+  revokeAllExtensionClients(): void {
+    this.db.prepare("DELETE FROM extension_clients").run();
   }
 
   touchExtensionClient(tokenHash: string): number | null {

@@ -29,3 +29,10 @@ export interface MonitorExclusion {
   title: string;
   createdAt: string;
 }
+
+export interface ExtensionClient {
+  id: number;
+  name: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+}

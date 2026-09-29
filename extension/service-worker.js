@@ -297,10 +297,8 @@ function extractListings() {
     diagnostic: {
       url: location.href,
       title: document.title,
-      readyState: document.readyState,
       anchors: anchors.length,
-      offerAnchors: offerAnchors.length,
-      sampleHrefs: offerAnchors.slice(0, 3).map(anchor => anchor.href)
+      offerAnchors: offerAnchors.length
     }
   };
 }
