@@ -4,6 +4,12 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.1.4 — 2026-09-29
+
+- Adres backendu pochodzi z `APP_PUBLIC_URL` w `.env` lub środowisku kontenera. Serwer generuje paczkę rozszerzenia i uprawnienia domeny przy starcie.
+- Usunięto adres instalacji z kodu rozszerzenia. Popup wyświetla konfigurację paczki; zmiana serwera wymaga ponownego parowania bez przekazywania starego tokena.
+- ZIP zawiera wyłącznie jawnie wskazane zasoby oraz publiczny adres. Obraz działa z systemem plików tylko do odczytu i katalogiem `/tmp`.
+
 ## Backend — 2026-09-29
 
 - Zaktualizowano Fastify i zależności fast-uri do wersji z poprawkami bezpieczeństwa; CI sprawdza podatności zależności produkcyjnych.

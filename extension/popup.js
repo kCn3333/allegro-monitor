@@ -1,3 +1,5 @@
+import { BACKEND_URL } from "./backend-config.js";
+
 const $ = selector => document.querySelector(selector);
 const send = payload => new Promise(resolve => chrome.runtime.sendMessage(payload, resolve));
 const localVersion = chrome.runtime.getManifest().version;
@@ -22,6 +24,7 @@ function showTab(name) {
 
 async function render() {
   const data = await chrome.storage.local.get({ token:"", watched:[], unread:[], latestExtensionVersion:"", connection:"paired", lastSyncAt:null });
+  $("#backend").value = BACKEND_URL;
   $("#extension-version").textContent = `Wersja ${localVersion}`;
   const versionStatus = $("#version-status");
   if (!data.latestExtensionVersion) { versionStatus.textContent = "Nie udało się sprawdzić aktualności"; versionStatus.className = "version-status"; }
@@ -43,7 +46,7 @@ async function render() {
 }
 
 document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => showTab(tab.dataset.tab)));
-$("#pair").addEventListener("click", async () => { message("Łączenie…"); const response=await send({type:"pair",backendUrl:$("#backend").value,code:$("#code").value}); message(response.ok?"Połączono":response.error,response.ok?"ok":"error"); if(response.ok)await send({type:"sync"}); await render(); });
+$("#pair").addEventListener("click", async () => { message("Łączenie…"); const response=await send({type:"pair",code:$("#code").value}); message(response.ok?"Połączono":response.error,response.ok?"ok":"error"); if(response.ok)await send({type:"sync"}); await render(); });
 $("#add").addEventListener("click", async () => { message("Dodawanie…"); const response=await send({type:"add-current",name:$("#name").value,intervalMinutes:Number($("#interval").value)}); message(response.ok?"Karta jest monitorowana":response.error,response.ok?"ok":"error"); await render(); });
 $("#sync").addEventListener("click", async () => { message("Odświeżanie…"); const response=await send({type:"sync"}); message(response.ok?"Lista odświeżona":response.error,response.ok?"ok":"error"); await render(); });
 $("#clear").addEventListener("click", async () => { await send({type:"clear-unread"}); await render(); });

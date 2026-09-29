@@ -52,16 +52,27 @@ urządzeń unieważnia też oczekujące kody parowania. Sesja panelu pozostaje a
 Zmiana hasła panelu nie unieważnia tokenów rozszerzeń — należy je odwołać osobno.
 Istniejące parowania są zachowane po aktualizacji; tokeny nie wygasają automatycznie.
 
-Domyślny adres backendu jest zapisany w `extension/service-worker.js`
-(`DEFAULT_BACKEND`) oraz w polu adresu w `extension/popup.html`. Przy parowaniu
-popup przekazuje wpisany adres do workera. Po udanej odpowiedzi worker zapisuje
-`backendUrl` i token w `chrome.storage.local`; kolejne żądania API używają tego
-adresu i nagłówka `Authorization: Bearer ...`. Kod parowania nie zawiera adresu
-serwera, a pobranie ZIP-a z innej domeny nie zmienia konfiguracji rozszerzenia.
-Własny backend wymaga również dopasowania `host_permissions` w
-`extension/manifest.json`; sama zmiana pola adresu nie zapewnia uprawnień do
-komunikacji z dowolną domeną. Zapisany adres przetrwa restart i przeładowanie
-rozszerzenia, dopóki jego lokalna pamięć nie zostanie usunięta.
+Adres serwera rozszerzenia pochodzi wyłącznie z `APP_PUBLIC_URL` w `.env`
+lub środowisku kontenera, np. `APP_PUBLIC_URL=https://monitor.example.com`.
+Wymagany jest publiczny adres HTTPS bez ścieżki, query i danych logowania.
+Compose przekazuje tę zmienną z `.env`; przy uruchomieniu przez `npm start`
+aplikacja sama odczytuje `.env` (istniejące zmienne środowiskowe mają pierwszeństwo).
+Produkcja odmawia startu bez `APP_PUBLIC_URL`.
+
+Przy starcie backend generuje ZIP w katalogu tymczasowym, zachowuje gotową
+paczkę w pamięci i usuwa pliki tymczasowe. Generuje `backend-config.js` i
+`host_permissions` manifestu dla skonfigurowanej domeny. Obraz kontenera nie
+zawiera adresu konkretnej instalacji. `.env`, hasła i tokeny nie trafiają do ZIP-a.
+Na lokalnej maszynie do generowania paczki potrzebny jest program `zip`;
+obraz kontenera już go zawiera. Surowy katalog `extension/` jest szablonem —
+do instalacji pobierz ZIP z panelu.
+
+Popup pokazuje adres z konfiguracji paczki jako pole tylko do odczytu.
+Parowanie zapisuje adres i token w `chrome.storage.local`. Przy tej samej domenie
+aktualizacja zachowuje parowanie. Po zmianie `APP_PUBLIC_URL` uruchom ponownie
+backend, pobierz nowy ZIP i przeładuj rozszerzenie. Zmiana adresu wymaga
+ponownego parowania; stary token nie jest wysyłany do nowego serwera.
+Adres nie jest wyznaczany z nagłówków HTTP ani kodu parowania.
 
 ## Dostarczanie i retencja
 
@@ -71,7 +82,7 @@ rozszerzenia, dopóki jego lokalna pamięć nie zostanie usunięta.
 
 ## Aktualizacja i weryfikacja
 
-Przed aktualizacją wykonaj spójną kopię SQLite. Aktualizuj backend, następnie przeładuj rozszerzenie **1.1.1**. Migracje wykonują się przy starcie i zachowują dane oraz ustawienia. Migracja 1.1.1 usuwa tylko niejednoznaczne historyczne etykiety „Nowa”. Starsze rozszerzenia bez protokołu ACK zachowują ryzyko utraty powiadomienia przy utracie odpowiedzi.
+Przed aktualizacją wykonaj spójną kopię SQLite. Aktualizuj backend, następnie przeładuj rozszerzenie **1.1.4**. Migracje wykonują się przy starcie i zachowują dane oraz ustawienia. Migracja 1.1.1 usuwa tylko niejednoznaczne historyczne etykiety „Nowa”. Starsze rozszerzenia bez protokołu ACK zachowują ryzyko utraty powiadomienia przy utracie odpowiedzi.
 
 ```bash
 npm test

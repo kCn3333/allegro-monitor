@@ -3,6 +3,7 @@ import fs from "node:fs";
 import formbody from "@fastify/formbody";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { config } from "./config.js";
+import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
 import { renderFaq } from "./faq.js";
 import { TelegramWorker } from "./notifications.js";
@@ -18,6 +19,9 @@ if (process.env.NODE_ENV === "production" && (!settings.username || !settings.pa
   throw new Error("APP_USERNAME, APP_PASSWORD i APP_SESSION_SECRET (minimum 32 znaki) są wymagane w środowisku produkcyjnym");
 }
 
+if (process.env.NODE_ENV === "production" && !settings.publicUrl) throw new Error("APP_PUBLIC_URL jest wymagane w środowisku produkcyjnym");
+const extensionPackage = settings.publicUrl ? await buildExtensionPackage(settings.publicUrl, settings.extensionDirectory) : null;
+
 const app = Fastify({ logger: true, bodyLimit: 256_000 });
 const store = new Store(settings.databasePath, settings.listingRetentionChecks);
 const pairingCodes = new Map<string, number>();
@@ -27,7 +31,7 @@ app.addHook("onClose", async () => { await worker.stop(); store.close(); });
 const attempts = new Map<string, { count: number; resetAt: number }>();
 const allowedIntervals = new Set([1, 5, 15, 30, 60]);
 const latestExtensionVersion = (() => {
-  try { return String(JSON.parse(fs.readFileSync(settings.extensionManifestPath, "utf8")).version || ""); }
+  try { return String(JSON.parse(fs.readFileSync(`${settings.extensionDirectory}/manifest.json`, "utf8")).version || ""); }
   catch { return ""; }
 })();
 
@@ -138,8 +142,8 @@ app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8"
 app.get("/extension", async (_request, reply) => reply.type("text/html; charset=utf-8").send(`<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rozszerzenie Allegro Monitor</title><style>:root{font-family:system-ui;color-scheme:light dark}body{max-width:720px;margin:50px auto;padding:0 20px;line-height:1.55}main{padding:28px;border:1px solid #8885;border-radius:16px}h1{margin-top:0}button,a.button{display:inline-block;background:#d8612c;color:#fff;border:0;border-radius:9px;padding:11px 16px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}code{background:#8882;padding:3px 6px;border-radius:5px}#code{font-size:28px;font-weight:800;letter-spacing:.08em;margin:20px 0}.muted{opacity:.7}li{margin:7px 0}</style></head><body><main><h1>Rozszerzenie dla Vivaldi</h1><p>Pobierz prototyp, zainstaluj go ręcznie, a następnie sparuj jednorazowym kodem.</p><p><a class="button" href="/extension/download">Pobierz rozszerzenie ZIP</a></p><ol><li>Rozpakuj ZIP w stałym katalogu.</li><li>Otwórz <code>vivaldi://extensions</code>.</li><li>Włącz Tryb dewelopera i kliknij „Załaduj rozpakowane”.</li><li>Wskaż rozpakowany katalog.</li><li>Wygeneruj kod poniżej i wpisz go w popupie rozszerzenia.</li></ol><button id="generate">Wygeneruj kod parowania</button><div id="code"></div><p class="muted">Kod jest jednorazowy i ważny przez 10 minut.</p><p><a href="/">← Wróć do panelu</a></p></main><script>document.querySelector('#generate').onclick=async()=>{const r=await fetch('/api/extension/pairing-code',{method:'POST'});const d=await r.json();document.querySelector('#code').textContent=d.code||d.error}</script></body></html>`));
 
 app.get("/extension/download", async (_request, reply) => {
-  if (!fs.existsSync(settings.extensionZipPath)) return reply.code(404).send("Paczka rozszerzenia nie została zbudowana");
-  return reply.header("Content-Disposition", 'attachment; filename="allegro-monitor-extension.zip"').type("application/zip").send(fs.createReadStream(settings.extensionZipPath));
+  if (!extensionPackage) return reply.code(503).send("Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
+  return reply.header("Content-Disposition", 'attachment; filename="allegro-monitor-extension.zip"').type("application/zip").send(extensionPackage);
 });
 
 app.post("/api/extension/pairing-code", async (_request, reply) => {

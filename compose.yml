@@ -7,7 +7,7 @@ services:
       PORT: ${APP_PORT:-3000}
       HOST: 0.0.0.0
       DATABASE_PATH: /app/data/monitor.sqlite
-      EXTENSION_ZIP_PATH: /app/extension.zip
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?Set APP_PUBLIC_URL to the public HTTPS origin}
       APP_TIME_ZONE: ${APP_TIME_ZONE:-Europe/Warsaw}
       TZ: ${APP_TIME_ZONE:-Europe/Warsaw}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in Portainer}

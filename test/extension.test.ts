@@ -37,7 +37,7 @@ function harness(initial: any = {}) {
     if (delay >= 12000 && delay <= 22000) queueMicrotask(() => { if (timers.delete(id)) fn(); });
     return id;
   };
-  const context = vm.createContext({ chrome, URL, Date: Clock, crypto: { randomUUID }, AbortSignal,
+  const context = vm.createContext({ BACKEND_URL: "https://monitor.example", chrome, URL, Date: Clock, crypto: { randomUUID }, AbortSignal,
     setTimeout: setTimer, clearTimeout: (id: number) => timers.delete(id), navigator: { platform: "test" },
     fetch: async (address: string, options: any) => {
       const path = new URL(address).pathname;
@@ -45,7 +45,7 @@ function harness(initial: any = {}) {
       const result = await h.request(path, body);
       return { ok: !result.status, status: result.status || 200, json: async () => result };
     } });
-  vm.runInContext(fs.readFileSync("extension/service-worker.js", "utf8").replace(/\nvoid initialize\(\);\s*$/, ''), context);
+  vm.runInContext(fs.readFileSync("extension/service-worker.js", "utf8").replace(/^import .*backend-config\.js.*;\n/m, "").replace(/\nvoid initialize\(\);\s*$/, ''), context);
   h.run = (code: string) => vm.runInContext(code, context);
   h.state = () => saved;
   h.message = (message: any) => new Promise(resolve => listener(message, {}, resolve));
@@ -266,5 +266,25 @@ test("each completed attempt finishes exactly once, before reporting a failure",
     if (failed) await assert.rejects(h.run("checkDue(1)"), /read failed/);
     else await h.run("checkDue(1)");
     assert.equal(h.run("finishes"), 1);
+  }
+});
+
+test("a changed packaged backend never receives the previous server token", async () => {
+  const h = harness({ backendUrl: "https://previous.example" });
+  await assert.rejects(h.run("reportPresence()"), /Adres serwera zmienił/);
+  assert.equal(h.posts.length, 0);
+  assert.equal(h.state().connection, "unauthorized");
+  assert.equal(h.state().token, "test");
+});
+
+test("pairing uses packaged configuration and clears monitors only when switching servers", async () => {
+  for (const backendUrl of ["https://previous.example", "https://monitor.example"]) {
+    const h = harness({ backendUrl });
+    h.request = async () => ({ token: "replacement-token" });
+    const result = await h.message({ type: "pair", code: "ABCD-1234", backendUrl: "https://ignored.example" });
+    assert.equal(result.ok, true);
+    assert.equal(h.state().backendUrl, "https://monitor.example");
+    assert.equal(h.state().token, "replacement-token");
+    assert.equal(h.state().watched.length, backendUrl === "https://monitor.example" ? 1 : 0);
   }
 });

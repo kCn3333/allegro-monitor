@@ -1,5 +1,6 @@
+import { BACKEND_URL } from "./backend-config.js";
+
 const ALARM = "allegro-monitor-tick";
-const DEFAULT_BACKEND = "https://allegro-monitor.kcn333.com";
 let checking = false;
 let presenceTimer = null;
 let writes = Promise.resolve();
@@ -23,7 +24,7 @@ function synchronize(operation) {
 const backgroundPresence = () => reportPresence().catch(() => {});
 
 async function state() {
-  const current = await chrome.storage.local.get({ backendUrl: DEFAULT_BACKEND, token: "", watched: [], unread: [] });
+  const current = await chrome.storage.local.get({ backendUrl: BACKEND_URL, token: "", watched: [], unread: [] });
   current.receivedThrough ??= Math.max(0, ...current.unread.map(item => Number(item.eventId) || 0));
   return current;
 }
@@ -114,6 +115,11 @@ async function resolveSearchUrl(tab) {
 async function api(path, options = {}) {
   const { backendUrl, token } = await state();
   if (!token) throw new Error("Rozszerzenie nie jest sparowane");
+  if (normalizeBackend(backendUrl) !== BACKEND_URL) {
+    const error = new Error("Adres serwera zmienił się — sparuj ponownie");
+    error.status = 401;
+    throw error;
+  }
   const response = await fetch(`${normalizeBackend(backendUrl)}${path}`, {
     ...options,
     signal: AbortSignal.timeout(15000),
@@ -127,15 +133,16 @@ async function api(path, options = {}) {
   return response.json();
 }
 
-async function pair(backendUrl, code) { return synchronize(async () => {
-  const url = normalizeBackend(backendUrl || DEFAULT_BACKEND);
+async function pair(code) { return synchronize(async () => {
+  const url = BACKEND_URL;
+  if (!url) throw new Error("Pobierz rozszerzenie z panelu skonfigurowanego serwera");
   const response = await fetch(`${url}/api/extension/pair`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ code: code.trim().toUpperCase(), name: `Vivaldi ${navigator.platform}` })
   });
   if (!response.ok) throw new Error((await response.text()) || "Nie udało się sparować");
   const { token } = await response.json();
-  await mutateState(() => ({ backendUrl: url, token, unread: [], receivedThrough: 0, connection: "paired", lastSyncAt: null }));
+  await mutateState(current => ({ watched: normalizeBackend(current.backendUrl) === url ? current.watched : [], backendUrl: url, token, unread: [], receivedThrough: 0, connection: "paired", lastSyncAt: null }));
   return true;
 }); }
 
@@ -423,7 +430,7 @@ async function checkDue(forceMonitorId = null) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
-    if (message.type === "pair") return pair(message.backendUrl, message.code);
+    if (message.type === "pair") return pair(message.code);
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "sync") { await reportPresence(); return true; }

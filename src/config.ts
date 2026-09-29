@@ -1,4 +1,9 @@
 import path from "node:path";
+import { loadEnvFile } from "node:process";
+
+try { loadEnvFile(); } catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
 
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -13,8 +18,8 @@ export const config = {
   port: positiveInteger(process.env.PORT, 3000),
   host: process.env.HOST || "0.0.0.0",
   databasePath: path.resolve(process.env.DATABASE_PATH || "./data/monitor.sqlite"),
-  extensionZipPath: path.resolve(process.env.EXTENSION_ZIP_PATH || "./extension.zip"),
-  extensionManifestPath: path.resolve(process.env.EXTENSION_MANIFEST_PATH || "./extension/manifest.json"),
+  publicUrl: process.env.APP_PUBLIC_URL || "",
+  extensionDirectory: path.resolve(process.env.EXTENSION_DIRECTORY || "./extension"),
   timeZone: process.env.APP_TIME_ZONE || "Europe/Warsaw",
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramChatIds: chatIds(process.env.TELEGRAM_CHAT_IDS || process.env.TELEGRAM_CHAT_ID || ""),
