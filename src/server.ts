@@ -5,6 +5,9 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { config } from "./config.js";
 import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
+import { renderDevices } from "./devices.js";
+import { renderExtension } from "./extension-page.js";
+import type { DeviceInfo } from "./types.js";
 import { renderFaq } from "./faq.js";
 import { TelegramWorker } from "./notifications.js";
 import { credentialFingerprint, expiredSessionCookie, isSameOriginRequest, safeCredentialsEqual,
@@ -44,6 +47,7 @@ function extensionClientId(request: FastifyRequest, reply: FastifyReply): number
   const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
   const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
   if (!clientId) { void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" }); return null; }
+  store.updateExtensionClientInfo(clientId, request.ip);
   return clientId;
 }
 
@@ -82,7 +86,7 @@ app.addHook("onRequest", async (request, reply) => {
     return;
   }
   if (!settings.username || !settings.password) {
-    if (path?.startsWith("/devices/")) return reply.code(503).send("Zarządzanie urządzeniami wymaga skonfigurowanego logowania");
+    if (path === "/devices" || path?.startsWith("/devices/")) return reply.code(503).send("Zarządzanie urządzeniami wymaga skonfigurowanego logowania");
     return;
   }
   const token = sessionTokenFromCookie(request.headers.cookie);
@@ -125,21 +129,22 @@ app.post("/logout", async (request, reply) => {
   if (token) store.deleteWebSession(tokenHash(token));
   return reply.header("Set-Cookie", expiredSessionCookie(secureCookies)).redirect("/login");
 });
-app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions(), store.listExtensionClients())));
+app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions())));
 app.post("/devices/revoke-all", async (_request, reply) => {
   store.revokeAllExtensionClients();
   pairingCodes.clear();
-  return reply.redirect("/");
+  return reply.redirect("/devices");
 });
 app.post<{ Params: { id: string } }>("/devices/:id/revoke", async (request, reply) => {
   const id = parseMonitorId(request.params.id);
   if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
   if (!store.revokeExtensionClient(id)) return reply.code(404).send("Urządzenie nie istnieje");
-  return reply.redirect("/");
+  return reply.redirect("/devices");
 });
 app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
 
-app.get("/extension", async (_request, reply) => reply.type("text/html; charset=utf-8").send(`<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rozszerzenie Allegro Monitor</title><style>:root{font-family:system-ui;color-scheme:light dark}body{max-width:720px;margin:50px auto;padding:0 20px;line-height:1.55}main{padding:28px;border:1px solid #8885;border-radius:16px}h1{margin-top:0}button,a.button{display:inline-block;background:#d8612c;color:#fff;border:0;border-radius:9px;padding:11px 16px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}code{background:#8882;padding:3px 6px;border-radius:5px}#code{font-size:28px;font-weight:800;letter-spacing:.08em;margin:20px 0}.muted{opacity:.7}li{margin:7px 0}</style></head><body><main><h1>Rozszerzenie dla Vivaldi</h1><p>Pobierz prototyp, zainstaluj go ręcznie, a następnie sparuj jednorazowym kodem.</p><p><a class="button" href="/extension/download">Pobierz rozszerzenie ZIP</a></p><ol><li>Rozpakuj ZIP w stałym katalogu.</li><li>Otwórz <code>vivaldi://extensions</code>.</li><li>Włącz Tryb dewelopera i kliknij „Załaduj rozpakowane”.</li><li>Wskaż rozpakowany katalog.</li><li>Wygeneruj kod poniżej i wpisz go w popupie rozszerzenia.</li></ol><button id="generate">Wygeneruj kod parowania</button><div id="code"></div><p class="muted">Kod jest jednorazowy i ważny przez 10 minut.</p><p><a href="/">← Wróć do panelu</a></p></main><script>document.querySelector('#generate').onclick=async()=>{const r=await fetch('/api/extension/pairing-code',{method:'POST'});const d=await r.json();document.querySelector('#code').textContent=d.code||d.error}</script></body></html>`));
+app.get("/devices", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())));
+app.get("/extension", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderExtension(latestExtensionVersion)));
 
 app.get("/extension/download", async (_request, reply) => {
   if (!extensionPackage) return reply.code(503).send("Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
@@ -185,11 +190,22 @@ app.post<{ Body: { name?: string; url?: string; intervalMinutes?: number } }>("/
   return reply.send({ id, name, url: url.toString(), intervalMinutes: interval, newListingsCount: 0, lastCheckNewCount: 0 });
 });
 
-app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificationProtocol?: number } }>("/api/extension/presence", async (request, reply) => {
+app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificationProtocol?: number; device?: unknown } }>("/api/extension/presence", async (request, reply) => {
   const clientId = extensionClientId(request, reply);
   if (!clientId) return;
   const monitors = request.body?.monitors;
   if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
+  const device = request.body?.device;
+  if (device !== undefined) {
+    if (!device || typeof device !== "object" || Array.isArray(device)) return reply.code(400).send("Nieprawidłowe dane urządzenia");
+    const info = {} as DeviceInfo;
+    for (const key of ["extensionVersion", "browser", "os", "osVersion", "arch"] as const) {
+      const value = (device as Record<string, unknown>)[key];
+      if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 160)) return reply.code(400).send("Nieprawidłowe dane urządzenia");
+      info[key] = typeof value === "string" ? value.trim() || null : null;
+    }
+    store.updateExtensionClientInfo(clientId, request.ip, info);
+  }
   let updated = 0;
   for (const presence of monitors) {
     const id = Number(presence?.id);

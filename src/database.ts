@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
+import type { DeviceInfo, ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
 
 const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt,
@@ -111,6 +111,9 @@ export class Store {
     `);
     const extensionColumns = new Set((this.db.prepare("PRAGMA table_info(extension_clients)").all() as Array<{ name: string }>).map(column => column.name));
     if (!extensionColumns.has("last_notification_event_id")) this.db.exec("ALTER TABLE extension_clients ADD COLUMN last_notification_event_id INTEGER NOT NULL DEFAULT 0");
+    for (const column of ["ip", "extension_version", "browser", "os", "os_version", "arch"]) {
+      if (!extensionColumns.has(column)) this.db.exec(`ALTER TABLE extension_clients ADD COLUMN ${column} TEXT`);
+    }
     const clientColumns = new Set((this.db.prepare("PRAGMA table_info(monitor_clients)").all() as Array<{ name: string }>).map(column => column.name));
     if (!clientColumns.has("client_enabled")) this.db.exec("ALTER TABLE monitor_clients ADD COLUMN client_enabled INTEGER NOT NULL DEFAULT 1");
     if (!clientColumns.has("notifications_enabled")) {
@@ -298,11 +301,6 @@ export class Store {
     return Number(result.lastInsertRowid);
   }
 
-  listExtensionClients(): ExtensionClient[] {
-    return this.db.prepare(`SELECT id,name,created_at createdAt,last_seen_at lastSeenAt
-      FROM extension_clients ORDER BY id DESC`).all() as unknown as ExtensionClient[];
-  }
-
   revokeExtensionClient(id: number): boolean {
     // Foreign keys remove only this device's links and pending batch, not shared data.
     return this.db.prepare("DELETE FROM extension_clients WHERE id=?").run(id).changes > 0;
@@ -317,6 +315,22 @@ export class Store {
     if (!client) return null;
     this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), client.id);
     return client.id;
+  }
+
+  updateExtensionClientInfo(id: number, ip: string, info?: DeviceInfo): void {
+    this.db.prepare("UPDATE extension_clients SET ip=? WHERE id=?").run(ip, id);
+    if (info) this.db.prepare(`UPDATE extension_clients SET extension_version=?,browser=?,os=?,os_version=?,arch=? WHERE id=?`)
+      .run(info.extensionVersion, info.browser, info.os, info.osVersion, info.arch, id);
+  }
+
+  listExtensionClients(at = Date.now()): ExtensionClient[] {
+    const since = new Date(at - 3 * 60_000).toISOString();
+    return this.db.prepare(`SELECT id,name,ip,extension_version extensionVersion,browser,os,os_version osVersion,arch,
+      created_at createdAt,last_seen_at lastSeenAt,
+      CASE WHEN last_seen_at>=? THEN 1 ELSE 0 END active,
+      (SELECT COUNT(*) FROM monitor_clients mc JOIN monitors m ON m.id=mc.monitor_id
+        WHERE mc.client_id=extension_clients.id AND mc.tab_open=1 AND mc.last_seen_at>=? AND m.enabled=1) openMonitorsCount
+      FROM extension_clients ORDER BY active DESC, last_seen_at DESC, id DESC`).all(since, since) as unknown as ExtensionClient[];
   }
 
   createWebSession(tokenHash: string, credentialFingerprint: string, durationSeconds: number): void {

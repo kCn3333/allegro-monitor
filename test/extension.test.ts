@@ -288,3 +288,16 @@ test("pairing uses packaged configuration and clears monitors only when switchin
     assert.equal(h.state().watched.length, backendUrl === "https://monitor.example" ? 1 : 0);
   }
 });
+
+test("presence reports device metadata and tolerates unavailable platform hints", async () => {
+  const h = harness();
+  h.run(`chrome.runtime.getManifest=()=>({version:'1.1.4'});chrome.runtime.getPlatformInfo=async()=>({os:'linux',arch:'x86-64'});navigator.userAgentData={platform:'Linux',getHighEntropyValues:async()=>({platformVersion:'',fullVersionList:[{brand:'Not A Brand',version:'99'},{brand:'Chromium',version:'140.0'}]})}`);
+  await h.run("reportPresence()");
+  assert.deepEqual(h.posts.find((post: any) => post.path.endsWith("/presence")).body.device, {
+    extensionVersion: "1.1.4", browser: "Chromium 140.0", os: "Linux", osVersion: null, arch: "x86-64"
+  });
+  h.run(`chrome.runtime.getPlatformInfo=async()=>{throw new Error('unavailable')};navigator.userAgentData.getHighEntropyValues=async()=>{throw new Error('denied')}`);
+  await h.run("reportPresence()");
+  assert.equal(h.posts.at(-1).body.device.osVersion, null);
+  assert.equal(h.posts.at(-1).body.device.extensionVersion, "1.1.4");
+});

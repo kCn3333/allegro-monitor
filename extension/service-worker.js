@@ -173,6 +173,17 @@ function reportPresence() { return synchronize(async () => {
     throw error;
   }
 }); }
+async function deviceInfo() {
+  const platform = await chrome.runtime.getPlatformInfo?.().catch(() => null);
+  const hints = await navigator.userAgentData?.getHighEntropyValues?.(["platformVersion", "fullVersionList"]).catch(() => null);
+  const brands = hints?.fullVersionList || navigator.userAgentData?.brands || [];
+  const browser = brands.filter(item => /^(Vivaldi|Chromium|Google Chrome|Microsoft Edge|Opera)$/.test(item.brand))
+    .map(item => `${item.brand} ${item.version}`).join(" · ") || navigator.userAgent?.match(/(?:Vivaldi|Chrome|Edg|OPR)\/[\d.]+/g)?.join(" · ") || null;
+  return { extensionVersion: chrome.runtime.getManifest?.().version || null, browser,
+    os: navigator.userAgentData?.platform || platform?.os || navigator.platform || null,
+    osVersion: hints?.platformVersion || null, arch: platform?.arch || null };
+}
+
 async function performPresence() {
   const data = await state();
   if (!data.token) throw new Error("Rozszerzenie nie jest sparowane");
@@ -183,7 +194,7 @@ async function performPresence() {
     watch.tabOpen = Boolean(tab);
     return { id: watch.monitorId, open: watch.tabOpen };
   });
-  const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors, notificationProtocol: 2 }) });
+  const response = await api("/api/extension/presence", { method: "POST", body: JSON.stringify({ monitors, notificationProtocol: 2, device: await deviceInfo() }) });
   if (!Array.isArray(response?.monitors)) throw new Error("Nieprawidłowa odpowiedź synchronizacji");
   let freshNotifications = [];
   const patch = await mutateState(current => {

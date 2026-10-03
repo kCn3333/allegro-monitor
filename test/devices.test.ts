@@ -8,7 +8,7 @@ import { Store } from "../src/database.js";
 import { config } from "../src/config.js";
 import { buildApp } from "../src/server.js";
 import { tokenHash } from "../src/security.js";
-import { renderPage } from "../src/ui.js";
+import { renderDevices } from "../src/devices.js";
 
 async function fixture(t: any) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-devices-"));
@@ -85,26 +85,26 @@ test("revoke-all clears pending pairing codes, preserves panel session and allow
   const paired = await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code: await code(), name: "Replacement" } });
   assert.equal(paired.statusCode, 200);
   assert.ok(store.touchExtensionClient(tokenHash(paired.json().token)));
-  const panel = await app.inject({ url: "/", headers: { cookie } });
+  const panel = await app.inject({ url: "/devices", headers: { cookie } });
   assert.equal(panel.statusCode, 200); assert.match(panel.body, /Replacement/);
   assert.doesNotMatch(panel.body, new RegExp(paired.json().token));
   assert.doesNotMatch(panel.body, new RegExp(tokenHash(paired.json().token)));
 });
 
 test("device UI escapes names, handles unused devices and renders explicit POST controls", () => {
-  const html = renderPage([], [], [], [{ id: 2, name: '<img src=x onerror="alert(1)">', createdAt: "2026-01-01T00:00:00Z", lastSeenAt: null }]);
+  const html = renderDevices([{ extensionVersion: null, browser: null, os: null, osVersion: null, arch: null, ip: null, active: 0, openMonitorsCount: 0, id: 2, name: '<img src=x onerror="alert(1)">', createdAt: "2026-01-01T00:00:00Z", lastSeenAt: null }]);
   assert.match(html, /&lt;img/); assert.doesNotMatch(html, /<img src=x/);
-  assert.match(html, /Jeszcze nie połączono/);
+  assert.match(html, /Brak kontaktu/);
   assert.match(html, /method="post" action="\/devices\/2\/revoke"/);
   assert.match(html, /method="post" action="\/devices\/revoke-all"/);
-  assert.match(renderPage([], [], []), /Brak sparowanych urządzeń/);
+  assert.match(renderDevices([]), /Brak sparowanych urządzeń/);
 });
 
 test("device management fails closed when panel credentials are not configured", async t => {
   const { settings, store, first } = await fixture(t);
   const app = await buildApp({ config: { ...settings, username: "", password: "" }, startWorker: false });
   t.after(() => app.close());
-  for (const url of [`/devices/${first}/revoke`, "/devices/revoke-all"]) {
+  for (const url of ["/devices", `/devices/${first}/revoke`, "/devices/revoke-all"]) {
     assert.equal((await app.inject({ method: "POST", url })).statusCode, 503);
   }
   assert.equal(store.listExtensionClients().length, 2);

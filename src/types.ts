@@ -30,9 +30,20 @@ export interface MonitorExclusion {
   createdAt: string;
 }
 
-export interface ExtensionClient {
+export interface DeviceInfo {
+  extensionVersion: string | null;
+  browser: string | null;
+  os: string | null;
+  osVersion: string | null;
+  arch: string | null;
+}
+
+export interface ExtensionClient extends DeviceInfo {
   id: number;
   name: string;
+  ip: string | null;
   createdAt: string;
   lastSeenAt: string | null;
+  active: number;
+  openMonitorsCount: number;
 }
