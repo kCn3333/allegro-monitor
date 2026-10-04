@@ -47,7 +47,6 @@ function extensionClientId(request: FastifyRequest, reply: FastifyReply): number
   const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
   const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
   if (!clientId) { void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" }); return null; }
-  store.updateExtensionClientInfo(clientId, request.ip);
   return clientId;
 }
 
@@ -141,6 +140,14 @@ app.post<{ Params: { id: string } }>("/devices/:id/revoke", async (request, repl
   if (!store.revokeExtensionClient(id)) return reply.code(404).send("Urządzenie nie istnieje");
   return reply.redirect("/devices");
 });
+app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/devices/:id/rename", async (request, reply) => {
+  const id = parseMonitorId(request.params.id);
+  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
+  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+  if (!name || name.length > 100) return reply.code(400).send("Nazwa urządzenia musi mieć od 1 do 100 znaków");
+  if (!store.renameExtensionClient(id, name)) return reply.code(404).send("Urządzenie nie istnieje");
+  return reply.redirect("/devices");
+});
 app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
 
 app.get("/devices", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())));
@@ -204,7 +211,7 @@ app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificati
       if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 160)) return reply.code(400).send("Nieprawidłowe dane urządzenia");
       info[key] = typeof value === "string" ? value.trim() || null : null;
     }
-    store.updateExtensionClientInfo(clientId, request.ip, info);
+    store.updateExtensionClientInfo(clientId, info);
   }
   let updated = 0;
   for (const presence of monitors) {

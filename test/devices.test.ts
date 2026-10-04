@@ -92,19 +92,49 @@ test("revoke-all clears pending pairing codes, preserves panel session and allow
 });
 
 test("device UI escapes names, handles unused devices and renders explicit POST controls", () => {
-  const html = renderDevices([{ extensionVersion: null, browser: null, os: null, osVersion: null, arch: null, ip: null, active: 0, openMonitorsCount: 0, id: 2, name: '<img src=x onerror="alert(1)">', createdAt: "2026-01-01T00:00:00Z", lastSeenAt: null }]);
+  const html = renderDevices([{ extensionVersion: null, browser: null, os: null, osVersion: null, arch: null, active: 0, openMonitorsCount: 0, id: 2, name: '<img src=x onerror="alert(1)">', createdAt: "2026-01-01T00:00:00Z", lastSeenAt: null }]);
   assert.match(html, /&lt;img/); assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /Brak kontaktu/);
   assert.match(html, /method="post" action="\/devices\/2\/revoke"/);
+  assert.match(html, /method="post" action="\/devices\/2\/rename"/);
+  assert.match(html, /aria-label="Edytuj nazwę urządzenia"/);
+  assert.doesNotMatch(html, /Adres IP/);
   assert.match(html, /method="post" action="\/devices\/revoke-all"/);
   assert.match(renderDevices([]), /Brak sparowanych urządzeń/);
+});
+
+test("device rename validates names, requires a same-origin web session and preserves pairing", async t => {
+  const { app, store, settings, first, second, cookie } = await fixture(t);
+  const url = `/devices/${first}/rename`;
+  for (const headers of [{}, { authorization: "Bearer first-token" }]) {
+    assert.equal((await app.inject({ method: "POST", url, headers, payload: { name: "Changed" } })).headers.location, "/login");
+  }
+  assert.equal((await app.inject({ method: "POST", url, headers: { cookie, "sec-fetch-site": "cross-site" }, payload: { name: "Changed" } })).statusCode, 403);
+  assert.equal((await app.inject({ method: "GET", url, headers: { cookie } })).statusCode, 404);
+  for (const name of [undefined, "", "   ", "a".repeat(101), 123, {}]) {
+    assert.equal((await app.inject({ method: "POST", url, headers: { cookie }, payload: { name } })).statusCode, 400);
+  }
+  for (const id of ["0", "bad", "9007199254740992"]) {
+    assert.equal((await app.inject({ method: "POST", url: `/devices/${id}/rename`, headers: { cookie }, payload: { name: "Changed" } })).statusCode, 400);
+  }
+  assert.equal((await app.inject({ method: "POST", url: "/devices/99999/rename", headers: { cookie }, payload: { name: "Changed" } })).statusCode, 404);
+  const name = '<script>alert("x")</script>';
+  assert.equal((await app.inject({ method: "POST", url, headers: { cookie }, payload: { name: `  ${name}  ` } })).headers.location, "/devices");
+  assert.equal(store.listExtensionClients().find(device => device.id === first)!.name, name);
+  assert.equal(store.listExtensionClients().find(device => device.id === second)!.name, "Second");
+  assert.equal(store.touchExtensionClient(tokenHash("first-token")), first);
+  const page = (await app.inject({ url: "/devices", headers: { cookie } })).body;
+  assert.match(page, /&lt;script&gt;/);
+  assert.doesNotMatch(page, /<script>alert/);
+  const reopened = new Store(settings.databasePath); t.after(() => reopened.close());
+  assert.equal(reopened.listExtensionClients().find(device => device.id === first)!.name, name);
 });
 
 test("device management fails closed when panel credentials are not configured", async t => {
   const { settings, store, first } = await fixture(t);
   const app = await buildApp({ config: { ...settings, username: "", password: "" }, startWorker: false });
   t.after(() => app.close());
-  for (const url of ["/devices", `/devices/${first}/revoke`, "/devices/revoke-all"]) {
+  for (const url of ["/devices", `/devices/${first}/rename`, `/devices/${first}/revoke`, "/devices/revoke-all"]) {
     assert.equal((await app.inject({ method: "POST", url })).statusCode, 503);
   }
   assert.equal(store.listExtensionClients().length, 2);

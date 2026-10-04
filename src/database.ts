@@ -111,7 +111,7 @@ export class Store {
     `);
     const extensionColumns = new Set((this.db.prepare("PRAGMA table_info(extension_clients)").all() as Array<{ name: string }>).map(column => column.name));
     if (!extensionColumns.has("last_notification_event_id")) this.db.exec("ALTER TABLE extension_clients ADD COLUMN last_notification_event_id INTEGER NOT NULL DEFAULT 0");
-    for (const column of ["ip", "extension_version", "browser", "os", "os_version", "arch"]) {
+    for (const column of ["extension_version", "browser", "os", "os_version", "arch"]) {
       if (!extensionColumns.has(column)) this.db.exec(`ALTER TABLE extension_clients ADD COLUMN ${column} TEXT`);
     }
     const clientColumns = new Set((this.db.prepare("PRAGMA table_info(monitor_clients)").all() as Array<{ name: string }>).map(column => column.name));
@@ -301,6 +301,10 @@ export class Store {
     return Number(result.lastInsertRowid);
   }
 
+  renameExtensionClient(id: number, name: string): boolean {
+    return this.db.prepare("UPDATE extension_clients SET name=? WHERE id=?").run(name, id).changes > 0;
+  }
+
   revokeExtensionClient(id: number): boolean {
     // Foreign keys remove only this device's links and pending batch, not shared data.
     return this.db.prepare("DELETE FROM extension_clients WHERE id=?").run(id).changes > 0;
@@ -317,15 +321,14 @@ export class Store {
     return client.id;
   }
 
-  updateExtensionClientInfo(id: number, ip: string, info?: DeviceInfo): void {
-    this.db.prepare("UPDATE extension_clients SET ip=? WHERE id=?").run(ip, id);
-    if (info) this.db.prepare(`UPDATE extension_clients SET extension_version=?,browser=?,os=?,os_version=?,arch=? WHERE id=?`)
+  updateExtensionClientInfo(id: number, info: DeviceInfo): void {
+    this.db.prepare(`UPDATE extension_clients SET extension_version=?,browser=?,os=?,os_version=?,arch=? WHERE id=?`)
       .run(info.extensionVersion, info.browser, info.os, info.osVersion, info.arch, id);
   }
 
   listExtensionClients(at = Date.now()): ExtensionClient[] {
     const since = new Date(at - 3 * 60_000).toISOString();
-    return this.db.prepare(`SELECT id,name,ip,extension_version extensionVersion,browser,os,os_version osVersion,arch,
+    return this.db.prepare(`SELECT id,name,extension_version extensionVersion,browser,os,os_version osVersion,arch,
       created_at createdAt,last_seen_at lastSeenAt,
       CASE WHEN last_seen_at>=? THEN 1 ELSE 0 END active,
       (SELECT COUNT(*) FROM monitor_clients mc JOIN monitors m ON m.id=mc.monitor_id

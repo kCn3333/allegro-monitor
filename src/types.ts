@@ -41,7 +41,6 @@ export interface DeviceInfo {
 export interface ExtensionClient extends DeviceInfo {
   id: number;
   name: string;
-  ip: string | null;
   createdAt: string;
   lastSeenAt: string | null;
   active: number;

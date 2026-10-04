@@ -25,7 +25,7 @@ test("device status expires, counts only fresh enabled monitor tabs, and metadat
   const id = store.addExtensionClient("<script>alert(1)</script>", "secret-hash");
   assert.equal(store.listExtensionClients()[0]!.active, 0);
   store.touchExtensionClient("secret-hash");
-  store.updateExtensionClientInfo(id, "203.0.113.1", { extensionVersion: "1.1.4", browser: "Chromium 140", os: "Linux", osVersion: null, arch: "x86-64" });
+  store.updateExtensionClientInfo(id, { extensionVersion: "1.1.4", browser: "Chromium 140", os: "Linux", osVersion: null, arch: "x86-64" });
   const monitor = store.createMonitor("books", "https://allegro.pl/listing?string=books", 5);
   store.linkMonitorClient(monitor, id);
   let devices = store.listExtensionClients();
@@ -55,7 +55,7 @@ test("device page is private and authenticated presence validates metadata, igno
   assert.equal((await presence()).statusCode, 200);
   const device = store.listExtensionClients()[0]!;
   assert.equal(device.os, "Linux"); assert.equal(device.extensionVersion, "1.1.4");
-  assert.notEqual(device.ip, "203.0.113.9");
+  assert.equal("ip" in device, false);
   const login = await app.inject({ method: "POST", url: "/login", payload: { username: "test", password: "password" } });
   const cookie = String(login.headers["set-cookie"]).split(";", 1)[0];
   assert.equal((await app.inject({ url: "/devices", headers: { cookie } })).statusCode, 200);

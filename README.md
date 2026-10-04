@@ -46,6 +46,7 @@ Produkcja wymaga HTTPS. Port aplikacji powinien być dostępny tylko dla reverse
 ## Dostęp urządzeń i adres serwera
 
 Panel pokazuje sparowane urządzenia, czas parowania i ostatnią aktywność.
+Nazwę urządzenia można zmienić przyciskiem edycji obok niej; zmiana nie wymaga ponownego parowania.
 Można odłączyć jedno urządzenie lub wszystkie naraz. Odwołany token od razu
 przestaje działać; wspólne monitory i historia pozostają. Odłączenie wszystkich
 urządzeń unieważnia też oczekujące kody parowania. Sesja panelu pozostaje aktywna.
