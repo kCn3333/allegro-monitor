@@ -35,8 +35,12 @@ test("downloaded archives contain only selected assets and use deployment-specif
     assert.deepEqual(manifest.host_permissions, ["https://allegro.pl/*", "https://*.allegro.pl/*", `https://${new URL(origin).hostname}/*`]);
     assert.equal(read("backend-config.js"), `export const BACKEND_URL = ${JSON.stringify(origin)};\n`);
     const entries = execFileSync("unzip", ["-Z1", archive], { encoding: "utf8" }).trim().split("\n");
-    assert.equal(entries.length, 8); assert.ok(!entries.includes(".env"));
+    assert.equal(entries.length, 10); assert.ok(!entries.includes(".env"));
     for (const asset of ["popup.js", "service-worker.js"]) assert.match(read(asset), /import \{ BACKEND_URL \} from "\.\/backend-config.js"/);
+    assert.match(read("popup-icons.js"), /export const icons =/);
+    assert.match(read("popup-icons.js"), /aria-hidden/);
+    assert.match(read("fontawesome-license.txt"), /CC BY 4.0/);
+    assert.match(read("popup.js"), /import \{ icons \} from "\.\/popup-icons.js"/);
     assert.match(read("popup.html"), /type="module" src="popup.js"/);
     assert.doesNotMatch(read("popup.html"), /kcn333/);
   }

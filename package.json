@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@fastify/formbody": "^8.0.2",
+    "@fortawesome/free-brands-svg-icons": "^7.3.1",
+    "@fortawesome/free-solid-svg-icons": "^7.3.1",
     "fastify": "^5.12.5"
   },
   "devDependencies": {

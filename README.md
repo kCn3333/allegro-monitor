@@ -61,7 +61,9 @@ aplikacja sama odczytuje `.env` (istniejące zmienne środowiskowe mają pierwsz
 Produkcja odmawia startu bez `APP_PUBLIC_URL`.
 
 Przy starcie backend generuje ZIP w katalogu tymczasowym, zachowuje gotową
-paczkę w pamięci i usuwa pliki tymczasowe. Generuje `backend-config.js` i
+paczkę w pamięci i usuwa pliki tymczasowe. Generuje `popup-icons.js` z wybranymi ikonami Font Awesome Free oraz informację
+o ich licencji. Ikony działają lokalnie, bez CDN i dodatkowych uprawnień.
+Generuje `backend-config.js` i
 `host_permissions` manifestu dla skonfigurowanej domeny. Obraz kontenera nie
 zawiera adresu konkretnej instalacji. `.env`, hasła i tokeny nie trafiają do ZIP-a.
 Na lokalnej maszynie do generowania paczki potrzebny jest program `zip`;
@@ -83,7 +85,7 @@ Adres nie jest wyznaczany z nagłówków HTTP ani kodu parowania.
 
 ## Aktualizacja i weryfikacja
 
-Przed aktualizacją wykonaj spójną kopię SQLite. Aktualizuj backend, następnie przeładuj rozszerzenie **1.1.4**. Migracje wykonują się przy starcie i zachowują dane oraz ustawienia. Migracja 1.1.1 usuwa tylko niejednoznaczne historyczne etykiety „Nowa”. Starsze rozszerzenia bez protokołu ACK zachowują ryzyko utraty powiadomienia przy utracie odpowiedzi.
+Przed aktualizacją wykonaj spójną kopię SQLite. Aktualizuj backend, następnie przeładuj rozszerzenie **1.1.6**. Migracje wykonują się przy starcie i zachowują dane oraz ustawienia. Migracja 1.1.1 usuwa tylko niejednoznaczne historyczne etykiety „Nowa”. Starsze rozszerzenia bez protokołu ACK zachowują ryzyko utraty powiadomienia przy utracie odpowiedzi.
 
 ```bash
 npm test

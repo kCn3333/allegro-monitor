@@ -1,4 +1,8 @@
 import { BACKEND_URL } from "./backend-config.js";
+import { icons } from "./popup-icons.js";
+
+const icon = name => icons[name] || "";
+for (const element of document.querySelectorAll("[data-icon]")) element.innerHTML = icon(element.dataset.icon);
 
 const $ = selector => document.querySelector(selector);
 const send = payload => new Promise(resolve => chrome.runtime.sendMessage(payload, resolve));
@@ -40,7 +44,7 @@ async function render() {
   $("#watched").innerHTML = data.watched.map(item => {
     const notificationsEnabled = item.notificationsEnabled !== false;
     const tabOpen = item.tabOpen !== false;
-    return `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Brak zgodnej karty"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || item.enabled === false ? "disabled" : ""} title="${item.enabled === false ? "Monitor wstrzymany" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">Sprawdź teraz</button><label class="notify-control"><span>Powiadomienia na tym urządzeniu</span><input type="checkbox" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track"></span></label></div></div>`;
+    return `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Brak zgodnej karty"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${icon("external")}${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || item.enabled === false ? "disabled" : ""} title="${item.enabled === false ? "Monitor wstrzymany" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">${icon("check")}Sprawdź teraz</button><label class="notify-control"><span>Powiadomienia na tym urządzeniu</span><input type="checkbox" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track"></span></label></div></div>`;
   }).join("");
   $("#unread").innerHTML = data.unread.map(item => `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><span>${esc(item.monitorName)} · ${esc(item.price || "Cena nieznana")}</span></div>`).join("");
 }
@@ -51,7 +55,8 @@ $("#add").addEventListener("click", async () => { message("Dodawanie…"); const
 $("#sync").addEventListener("click", async () => { message("Odświeżanie…"); const response=await send({type:"sync"}); message(response.ok?"Lista odświeżona":response.error,response.ok?"ok":"error"); await render(); });
 $("#clear").addEventListener("click", async () => { await send({type:"clear-unread"}); await render(); });
 document.addEventListener("click", async event => {
-  const open=event.target.dataset?.open, check=event.target.dataset?.check;
+  const button=event.target.closest?.("button[data-open],button[data-check]");
+  const open=button?.dataset.open, check=button?.dataset.check;
   if(open){const data=await chrome.storage.local.get({watched:[]});const item=data.watched.find(watch=>watch.monitorId===Number(open));if(item?.tabId)await chrome.tabs.update(item.tabId,{active:true});else if(item?.url)await chrome.tabs.create({url:item.url});window.close();}
   if(check){message("Sprawdzanie…");const response=await send({type:"check",monitorId:Number(check)});message(response.ok?"Sprawdzono":response.error,response.ok?"ok":"error");await render();}
 });

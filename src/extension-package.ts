@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -26,8 +27,13 @@ export async function buildExtensionPackage(publicUrl: string, directory: string
     await fs.writeFile(path.join(temporary, "manifest.json"), JSON.stringify(manifest, null, 2));
     // Only the public origin is embedded. Never copy .env or serialize process.env.
     await fs.writeFile(path.join(temporary, "backend-config.js"), `export const BACKEND_URL = ${JSON.stringify(url.origin)};\n`);
+    const popupIcons = Object.fromEntries((["panel", "eye", "bell", "pair", "add", "refresh", "trash", "external", "check"] as const)
+      .map(name => [name, icon(name)]));
+    const notice = "Font Awesome Free by Fonticons, Inc. (https://fontawesome.com). Icons: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Shapes unchanged.\n";
+    await fs.writeFile(path.join(temporary, "popup-icons.js"), `// ${notice}export const icons = ${JSON.stringify(popupIcons)};\n`);
+    await fs.writeFile(path.join(temporary, "fontawesome-license.txt"), notice);
     const archive = path.join(temporary, "extension.zip");
-    await run("zip", ["-q", archive, ...assets, "manifest.json", "backend-config.js"], { cwd: temporary, timeout: 15000 });
+    await run("zip", ["-q", archive, ...assets, "manifest.json", "backend-config.js", "popup-icons.js", "fontawesome-license.txt"], { cwd: temporary, timeout: 15000 });
     return await fs.readFile(archive);
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
