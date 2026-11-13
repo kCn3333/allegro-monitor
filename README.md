@@ -1,16 +1,17 @@
-<h1><img src="docs/assets/branding/logo-128.png" alt="" width="64" height="64" align="middle"> Allegro Monitor</h1>
+# <img src="docs/assets/branding/logo-128.png" width="48" height="48" alt=""> Allegro Monitor
 
-[![CI](https://img.shields.io/github/actions/workflow/status/kCn3333/allegro-monitor/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=2b2b2b&passingColor=d8612c&failingColor=b42318)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
-[![Node.js 22](https://img.shields.io/badge/Node.js-22-d8612c?style=flat-square&logo=nodedotjs&logoColor=white&labelColor=2b2b2b)](https://nodejs.org/en/download)
-[![TypeScript 5](https://img.shields.io/badge/TypeScript-5-d8612c?style=flat-square&logo=typescript&logoColor=white&labelColor=2b2b2b)](https://www.typescriptlang.org/)
-[![Fastify 5](https://img.shields.io/badge/Fastify-5-d8612c?style=flat-square&logo=fastify&logoColor=white&labelColor=2b2b2b)](https://fastify.dev/)
-[![SQLite 3](https://img.shields.io/badge/SQLite-3-d8612c?style=flat-square&logo=sqlite&logoColor=white&labelColor=2b2b2b)](https://sqlite.org/)
-[![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-d8612c?style=flat-square&logo=docker&logoColor=white&labelColor=2b2b2b)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
-[![Licencja MIT](https://img.shields.io/badge/License-MIT-d8612c?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=2b2b2b)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/kCn3333/allegro-monitor/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=131b26)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
+[![Node.js 22](https://img.shields.io/badge/Node.js-22-5FA04E?style=flat-square&logo=nodedotjs&logoColor=5FA04E&labelColor=131b26)](https://nodejs.org/en/download)
+[![TypeScript 5](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=3178C6&labelColor=131b26)](https://www.typescriptlang.org/)
+[![Fastify 5](https://img.shields.io/badge/Fastify-5-000000?style=flat-square&logo=fastify&logoColor=white&labelColor=131b26)](https://fastify.dev/)
+[![SQLite 3](https://img.shields.io/badge/SQLite-3-74c7ec?style=flat-square&logo=sqlite&logoColor=74c7ec&labelColor=131b26)](https://sqlite.org/)
+[![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=2496ED&labelColor=131b26)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
 
 Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel aplikacji. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
 
 Rozszerzenie używa Chromium Manifest V3; instrukcja instalacji w panelu dotyczy Vivaldi.
+
+[Historia wydań](CHANGELOG.md) · [Uruchomienie](#uruchomienie-w-dockerze) · [Konfiguracja](#konfiguracja) · [Rozszerzenie](#instalacja-i-parowanie-rozszerzenia) · [Licencja MIT](LICENSE)
 
 ## Zasady działania
 
@@ -104,5 +105,3 @@ Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źr
 - **Oferty i wykluczenia:** usunięcie oferty przez retencję nie zmniejsza łącznego licznika nowości. Wykluczenia dotyczą pełnego identyfikatora `offer:ID` lub `product:UUID`.
 
 Projekt jest udostępniany na [licencji MIT](LICENSE). Ikony Font Awesome podlegają [odrębnej licencji CC BY 4.0](THIRD_PARTY_NOTICES.md).
-
-[Historia wydań](CHANGELOG.md)

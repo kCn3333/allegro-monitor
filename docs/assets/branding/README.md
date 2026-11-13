@@ -8,7 +8,7 @@ Zaakceptowany znak przedstawia lupę z książkami. Pomarańczowy kolor nawiązu
 | `logo-1024.png` | 1024 × 1024 px | Duże materiały graficzne. |
 | `logo-512.png` | 512 × 512 px | Ikona aplikacji w wysokiej rozdzielczości. |
 | `logo-256.png` | 256 × 256 px | Dokumentacja i materiały graficzne wyświetlane w rozmiarze 128 px. |
-| `logo-128.png` | 128 × 128 px | Nagłówek README (64 px), ikona rozszerzenia i powiadomień. |
+| `logo-128.png` | 128 × 128 px | Nagłówek README (48 px), ikona rozszerzenia i powiadomień. |
 | `logo-64.png` | 64 × 64 px | Nagłówek panelu i ekran logowania. |
 | `logo-48.png` | 48 × 48 px | Lista rozszerzeń przeglądarki. |
 | `logo-32.png` | 32 × 32 px | Pasek narzędzi przeglądarki w podwójnej rozdzielczości. |
