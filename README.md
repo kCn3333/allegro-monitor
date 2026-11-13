@@ -1,100 +1,98 @@
 # Allegro Monitor
 
-Monitor wyszukiwań Allegro: rozszerzenie Chromium Manifest V3 odczytuje otwarte karty użytkownika i przesyła wyniki do backendu **Fastify / TypeScript / SQLite**. Panel WWW jest renderowany po stronie serwera. Powiadomienia trafiają do rozszerzenia i opcjonalnie do Telegrama.
+Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel WWW. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
 
-## Działanie
+Backend korzysta z Node.js, TypeScript i Fastify. Rozszerzenie używa Chromium Manifest V3; instrukcja instalacji w panelu dotyczy Vivaldi.
 
-- Pierwszy odczyt tworzy punkt odniesienia bez alertów. Kolejne wykrywają nowe identyfikatory ofert lub produktów; etykieta „Nowa” jest przypisana do cyklu sprawdzenia.
-- Karta musi odpowiadać zapisanemu URL, łącznie z kategorią, filtrami i paginacją. Rozszerzenie sprawdza karty kolejno, z interwałem 1, 5, 15, 30 lub 60 minut.
-- Monitory i wykluczenia są przechowywane na serwerze. Urządzenia synchronizują stan co minutę; lokalne wyciszenie powiadomień nie wyłącza sprawdzania.
-- Przeglądarka musi działać na aktywnym komputerze. Captcha przerywa cykl. Błąd lub przerwanie workera powoduje trwałą przerwę co najmniej 10 minut albo dłuższy interwał monitora. Nie ma koordynacji sprawdzeń między urządzeniami.
+## Zasady działania
+
+- Pierwsze sprawdzenie zapisuje stan początkowy bez powiadomień. Kolejne wykrywają nowe identyfikatory ofert i produktów. Oznaczenie „Nowa” dotyczy ostatniego udanego sprawdzenia.
+- Rozszerzenie odświeża karty kolejno, zgodnie z interwałem monitora: 1, 5, 15, 30 lub 60 minut. Adres karty musi odpowiadać zapisanemu wyszukiwaniu, łącznie z kategorią, filtrami i paginacją.
+- Przeglądarka i karta wyszukiwania muszą pozostać otwarte, a komputer nie może być uśpiony. Karta nie musi być aktywna. Backend sam nie pobiera wyników z Allegro.
+- Monitory i wykluczenia są wspólne dla sparowanych urządzeń. Synchronizacja odbywa się co minutę. Wyciszenie powiadomień na urządzeniu nie zatrzymuje sprawdzania.
+- Captcha lub blokada Allegro przerywa bieżący cykl i wymaga interwencji użytkownika. Po błędzie lub przerwaniu workera ponowna automatyczna próba następuje po co najmniej 10 minutach albo po dłuższym interwale monitora.
+- Urządzenia sprawdzają wyszukiwania niezależnie; aplikacja nie koordynuje ich harmonogramów.
+
+## Uruchomienie w Dockerze
+
+Wymagane są Docker Compose i adres HTTPS prowadzący do aplikacji przez reverse proxy lub tunel.
+
+1. Skopiuj konfigurację:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Uzupełnij `APP_PUBLIC_URL`, `APP_USERNAME`, `APP_PASSWORD` i `APP_SESSION_SECRET`. Dostarczony plik Compose wymaga również `TELEGRAM_BOT_TOKEN`; aby otrzymywać wiadomości, ustaw odbiorców w `TELEGRAM_CHAT_IDS`.
+3. Uruchom aplikację:
+
+   ```bash
+   docker compose up -d
+   ```
+
+[compose.yml](compose.yml) pobiera obraz `ghcr.io/kcn3333/allegro-monitor:latest`. Dane SQLite są zapisywane w trwałym wolumenie `allegro-monitor-data`. Domyślny port aplikacji to `3000`.
+
+## Konfiguracja
+
+Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo.
+
+| Zmienna | Znaczenie i wartość domyślna |
+| --- | --- |
+| `APP_PUBLIC_URL` | Adres HTTPS serwera, np. `https://monitor.example.com`, bez ścieżki, parametrów, fragmentu i danych logowania. Wymagany w produkcji oraz do wygenerowania rozszerzenia. |
+| `APP_USERNAME`, `APP_PASSWORD` | Dane logowania do panelu. Wymagane w produkcji. |
+| `APP_SESSION_SECRET` | Sekret sesji; w produkcji co najmniej 32 losowe znaki. |
+| `TELEGRAM_BOT_TOKEN` | Token bota. Backend może działać bez niego, ale dostarczony Compose wymaga niepustej wartości. |
+| `TELEGRAM_CHAT_IDS` | Identyfikatory odbiorców oddzielone przecinkami. Jeśli zmienna jest pusta, używana jest starsza `TELEGRAM_CHAT_ID`. |
+| `DATABASE_PATH` | Ścieżka bazy SQLite: lokalnie `./data/monitor.sqlite`; w Compose ustawiona na `/app/data/monitor.sqlite`. |
+| `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`. |
+| `APP_TIME_ZONE` | Strefa czasowa panelu. Domyślnie `Europe/Warsaw`. |
+| `HOST`, `PORT` | Adres nasłuchu i port przy uruchomieniu lokalnym. Domyślnie `0.0.0.0` i `3000`. |
+
+Dodatkowe ustawienia Compose: `IMAGE_TAG` (domyślnie `latest`), `APP_PORT` (`3000`) oraz `BIND_ADDRESS` (`0.0.0.0`). Port aplikacji powinien być dostępny wyłącznie dla reverse proxy lub tunelu. Dla proxy działającego na tym samym hoście można ustawić `BIND_ADDRESS=127.0.0.1`.
+
+Odbiorca wiadomości Telegram musi rozpocząć rozmowę z botem, np. poleceniem `/start`, albo dodać bota do grupy.
 
 ## Uruchomienie lokalne
 
-Wymagany Node.js 22. Uzupełnij dane logowania w `.env`; polecenie jawnie wczytuje ten plik.
+Wymagane są Node.js 22.5 lub nowszy z linii 22 oraz program `zip`, używany do generowania paczki rozszerzenia.
 
 ```bash
 npm ci
 cp .env.example .env
-# Uzupełnij .env przed uruchomieniem.
-node --env-file=.env --experimental-sqlite --import tsx src/main.ts
 ```
 
-Panel: `http://localhost:3000`. Aby zainstalować rozszerzenie, załaduj katalog `extension/` jako rozpakowane rozszerzenie Chromium i sparuj je kodem z `/extension`. W popupie wybierz „Monitoruj tę kartę” na otwartym wyszukiwaniu Allegro. Adres backendu przy parowaniu musi być objęty `host_permissions` w [manifeście](extension/manifest.json).
-
-## Konfiguracja i Docker
-
-| Zmienna | Znaczenie |
-| --- | --- |
-| `APP_USERNAME`, `APP_PASSWORD` | Dane logowania do panelu; wymagane w produkcji. |
-| `APP_SESSION_SECRET` | Sekret sesji, minimum 32 znaki w produkcji. Zmiana danych logowania lub sekretu unieważnia sesje. |
-| `TELEGRAM_BOT_TOKEN` | Token bota. Backend działa bez niego, ale dostarczony Compose wymaga niepustej wartości. |
-| `TELEGRAM_CHAT_IDS` | Identyfikatory odbiorców oddzielone przecinkami; obsługiwana jest też starsza zmienna `TELEGRAM_CHAT_ID`. Odbiorca musi rozpocząć rozmowę z botem lub dodać go do grupy. |
-| `DATABASE_PATH` | Plik SQLite; lokalnie `./data/monitor.sqlite`, w kontenerze `/app/data/monitor.sqlite`. |
-| `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych odczytów bez oferty, po której jest usuwana; domyślnie 5. |
-
-[compose.yml](compose.yml) pobiera obraz `ghcr.io/kcn3333/allegro-monitor`. Po uzupełnieniu `.env`:
+Uzupełnij `.env`, a następnie uruchom backend:
 
 ```bash
-docker compose up -d
+node --experimental-sqlite --import tsx src/main.ts
 ```
 
-Compose obsługuje `IMAGE_TAG` (domyślnie `latest`), `APP_PORT` (`3000`), `BIND_ADDRESS` (`0.0.0.0`) i `APP_TIME_ZONE` (`Europe/Warsaw`). Przy uruchomieniu bez Compose adres i port określają `HOST` i `PORT`. Dane kontenera znajdują się w wolumenie `allegro-monitor-data`.
+Panel jest dostępny pod `http://localhost:3000`. Korzystanie z rozszerzenia wymaga ustawienia `APP_PUBLIC_URL` i udostępnienia backendu pod tym adresem HTTPS.
 
-Produkcja wymaga HTTPS. Port aplikacji powinien być dostępny tylko dla reverse proxy lub tunelu. `trustProxy` jest wyłączone: użytkownicy za jednym proxy współdzielą limit logowania — 20 błędów w 15 minut, potem `429` z `Retry-After`. Sesje panelu i tokeny rozszerzeń są oddzielne; serwer przechowuje ich hashe.
+## Instalacja i parowanie rozszerzenia
 
-## Dostęp urządzeń i adres serwera
+1. Zaloguj się do panelu i otwórz stronę `/extension`.
+2. Pobierz ZIP i rozpakuj go w stałym katalogu.
+3. Otwórz `vivaldi://extensions`, włącz „Tryb dewelopera” i wybierz „Załaduj rozpakowane”. Wskaż katalog z rozpakowaną paczką.
+4. W panelu wygeneruj kod parowania i wpisz go w oknie rozszerzenia. Kod jest jednorazowy i ważny przez 10 minut.
+5. Otwórz wyszukiwanie Allegro, wybierz w rozszerzeniu „Monitoruj tę kartę” i ustaw interwał.
 
-Panel pokazuje sparowane urządzenia, czas parowania i ostatnią aktywność.
-Nazwę urządzenia można zmienić przyciskiem edycji obok niej; zmiana nie wymaga ponownego parowania.
-Można odłączyć jedno urządzenie lub wszystkie naraz. Odwołany token od razu
-przestaje działać; wspólne monitory i historia pozostają. Odłączenie wszystkich
-urządzeń unieważnia też oczekujące kody parowania. Sesja panelu pozostaje aktywna.
-Zmiana hasła panelu nie unieważnia tokenów rozszerzeń — należy je odwołać osobno.
-Istniejące parowania są zachowane po aktualizacji; tokeny nie wygasają automatycznie.
+Backend generuje paczkę przy starcie na podstawie `APP_PUBLIC_URL`. ZIP zawiera adres serwera, uprawnienia dla jego domeny oraz wymagane zasoby, w tym lokalne ikony. Hasła, tokeny i plik `.env` nie są dołączane. Katalog `extension/` w repozytorium jest szablonem; do instalacji służy paczka pobrana z panelu.
 
-Adres serwera rozszerzenia pochodzi wyłącznie z `APP_PUBLIC_URL` w `.env`
-lub środowisku kontenera, np. `APP_PUBLIC_URL=https://monitor.example.com`.
-Wymagany jest publiczny adres HTTPS bez ścieżki, query i danych logowania.
-Compose przekazuje tę zmienną z `.env`; przy uruchomieniu przez `npm start`
-aplikacja sama odczytuje `.env` (istniejące zmienne środowiskowe mają pierwszeństwo).
-Produkcja odmawia startu bez `APP_PUBLIC_URL`.
+Adres serwera w rozszerzeniu jest tylko do odczytu. Po zmianie `APP_PUBLIC_URL` uruchom ponownie backend, pobierz nową paczkę, przeładuj rozszerzenie i sparuj je ponownie. Token poprzedniego serwera nie jest wysyłany pod nowy adres.
 
-Przy starcie backend generuje ZIP w katalogu tymczasowym, zachowuje gotową
-paczkę w pamięci i usuwa pliki tymczasowe. Generuje `popup-icons.js` z wybranymi ikonami Font Awesome Free oraz informację
-o ich licencji. Ikony działają lokalnie, bez CDN i dodatkowych uprawnień.
-Generuje `backend-config.js` i
-`host_permissions` manifestu dla skonfigurowanej domeny. Obraz kontenera nie
-zawiera adresu konkretnej instalacji. `.env`, hasła i tokeny nie trafiają do ZIP-a.
-Na lokalnej maszynie do generowania paczki potrzebny jest program `zip`;
-obraz kontenera już go zawiera. Surowy katalog `extension/` jest szablonem —
-do instalacji pobierz ZIP z panelu.
+## Dostęp i urządzenia
 
-Popup pokazuje adres z konfiguracji paczki jako pole tylko do odczytu.
-Parowanie zapisuje adres i token w `chrome.storage.local`. Przy tej samej domenie
-aktualizacja zachowuje parowanie. Po zmianie `APP_PUBLIC_URL` uruchom ponownie
-backend, pobierz nowy ZIP i przeładuj rozszerzenie. Zmiana adresu wymaga
-ponownego parowania; stary token nie jest wysyłany do nowego serwera.
-Adres nie jest wyznaczany z nagłówków HTTP ani kodu parowania.
+Panel umożliwia przeglądanie sparowanych urządzeń, zmianę ich nazw i odwoływanie dostępu. Odłączenie urządzenia natychmiast unieważnia jego token, zachowując wspólne monitory i historię. Odłączenie wszystkich urządzeń unieważnia również oczekujące kody parowania.
 
-## Dostarczanie i retencja
+Sesje panelu i tokeny rozszerzeń są niezależne; serwer przechowuje ich hashe. Zmiana danych logowania lub sekretu unieważnia sesje panelu. Tokeny rozszerzeń nie wygasają automatycznie i wymagają osobnego odwołania.
 
-- **Rozszerzenie:** partie do 50 zdarzeń, trwały zapis przed ACK i deduplikacja po `eventId`. Lista mieści 100 nieprzeczytanych pozycji; po zapełnieniu trzeba ją wyczyścić, aby odebrać resztę. Zdarzenia i oczekujące partie wygasają po 30 dniach. Wyświetlenie powiadomienia przez system nie ma osobnego potwierdzenia.
-- **Telegram:** zlecenia są zapisywane w transakcji z ofertami, osobno dla odbiorców. Worker wysyła jedno zadanie naraz: timeout 10 s, do 12 prób, rosnący odstęp i obsługa `retry_after`. Przerwane zadania wracają po 60 s; zakończone mają retencję 30 dni. Niejednoznaczny timeout może spowodować duplikat — brak gwarancji „exactly once”.
-- **Oferty:** retencja nie zmniejsza łącznego licznika nowości. Wykluczenia używają pełnego identyfikatora `offer:ID` lub `product:UUID`.
+Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źródłowego w ciągu 15 minut serwer blokuje kolejne próby do końca tego okresu, zwracając `429` i `Retry-After`. Aplikacja nie włącza `trustProxy`, dlatego użytkownicy za wspólnym proxy współdzielą ten limit.
 
-## Aktualizacja i weryfikacja
+## Powiadomienia i przechowywanie danych
 
-Przed aktualizacją wykonaj spójną kopię SQLite. Aktualizuj backend, następnie przeładuj rozszerzenie **1.1.6**. Migracje wykonują się przy starcie i zachowują dane oraz ustawienia. Migracja 1.1.1 usuwa tylko niejednoznaczne historyczne etykiety „Nowa”. Starsze rozszerzenia bez protokołu ACK zachowują ryzyko utraty powiadomienia przy utracie odpowiedzi.
+- **Rozszerzenie:** odbiera partie do 50 zdarzeń, zapisuje je przed potwierdzeniem odbioru i usuwa duplikaty według `eventId`. Lista mieści 100 nieprzeczytanych pozycji; jej wyczyszczenie pozwala odebrać kolejne. Zdarzenia i oczekujące partie są przechowywane przez 30 dni. Potwierdzenie odbioru nie potwierdza wyświetlenia powiadomienia przez system.
+- **Telegram:** kolejka jest zapisywana razem z ofertami, osobno dla każdego odbiorcy. Wysyłka obejmuje do 12 prób, timeout 10 sekund i rosnące odstępy z uwzględnieniem `retry_after`. Przerwane zadanie można ponowić po 60 sekundach; zakończone zadania są przechowywane przez 30 dni. Niejednoznaczny wynik wysyłki może skutkować duplikatem wiadomości.
+- **Oferty i wykluczenia:** usunięcie oferty przez retencję nie zmniejsza łącznego licznika nowości. Wykluczenia dotyczą pełnego identyfikatora `offer:ID` lub `product:UUID`.
 
-```bash
-npm test
-npm run check
-npm run build
-```
-
-Testy korzystają z tymczasowych baz, Fastify `inject` i mocków Chromium oraz Telegrama. Nie zastępują weryfikacji cyklu życia rozszerzenia w Vivaldi. Zbudowany backend uruchamia `npm start` ze zmiennymi przekazanymi w środowisku.
-
-Push do `main` uruchamia CI i publikację obrazu. Wdrożenie jest osobnym, ręcznym workflow [Deploy](.github/workflows/deploy.yml), wymagającym sekretów `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` w środowisku `production` oraz pliku Compose w `/opt/allegro-monitor` na serwerze.
-
-[Historia wydań](CHANGELOG.md)
+[Historia wydań](CHANGELOG.md) · [Licencje ikon](THIRD_PARTY_NOTICES.md)
