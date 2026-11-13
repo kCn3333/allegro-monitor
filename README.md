@@ -1,12 +1,14 @@
-<img src="docs/assets/branding/logo-256.png" alt="Logo Allegro Monitor — lupa z książkami" width="128" height="128"> # Allegro Monitor
+<h1><img src="docs/assets/branding/logo-128.png" alt="" width="64" height="64" align="middle"> Allegro Monitor</h1>
 
 [![CI](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
 [![Node.js 22](https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/en/download)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Fastify](https://img.shields.io/badge/Fastify-000000?logo=fastify&logoColor=white)](https://fastify.dev/)
 [![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
 
 Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel aplikacji. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
 
-Backend korzysta z Node.js, TypeScript i Fastify. Rozszerzenie używa Chromium Manifest V3; instrukcja instalacji w panelu dotyczy Vivaldi.
+Rozszerzenie używa Chromium Manifest V3; instrukcja instalacji w panelu dotyczy Vivaldi.
 
 ## Zasady działania
 
