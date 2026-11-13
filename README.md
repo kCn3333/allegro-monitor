@@ -1,6 +1,4 @@
-<img src="docs/assets/branding/logo-256.png" alt="Logo Allegro Monitor — lupa z książkami" width="128" height="128">
-
-# Allegro Monitor
+<img src="docs/assets/branding/logo-256.png" alt="Logo Allegro Monitor — lupa z książkami" width="128" height="128"> # Allegro Monitor
 
 [![CI](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
 [![Node.js 22](https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/en/download)
