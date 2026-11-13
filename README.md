@@ -6,6 +6,7 @@
 [![Fastify 5](https://img.shields.io/badge/Fastify-5-d8612c?style=flat-square&logo=fastify&logoColor=white&labelColor=2b2b2b)](https://fastify.dev/)
 [![SQLite 3](https://img.shields.io/badge/SQLite-3-d8612c?style=flat-square&logo=sqlite&logoColor=white&labelColor=2b2b2b)](https://sqlite.org/)
 [![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-d8612c?style=flat-square&logo=docker&logoColor=white&labelColor=2b2b2b)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
+[![Licencja MIT](https://img.shields.io/badge/License-MIT-d8612c?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=2b2b2b)](LICENSE)
 
 Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel aplikacji. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
 
@@ -102,4 +103,6 @@ Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źr
 - **Telegram:** kolejka jest zapisywana razem z ofertami, osobno dla każdego odbiorcy. Wysyłka obejmuje do 12 prób, timeout 10 sekund i rosnące odstępy z uwzględnieniem `retry_after`. Przerwane zadanie można ponowić po 60 sekundach; zakończone zadania są przechowywane przez 30 dni. Niejednoznaczny wynik wysyłki może skutkować duplikatem wiadomości.
 - **Oferty i wykluczenia:** usunięcie oferty przez retencję nie zmniejsza łącznego licznika nowości. Wykluczenia dotyczą pełnego identyfikatora `offer:ID` lub `product:UUID`.
 
-[Historia wydań](CHANGELOG.md) · [Licencje ikon](THIRD_PARTY_NOTICES.md)
+Projekt jest udostępniany na [licencji MIT](LICENSE). Ikony Font Awesome podlegają [odrębnej licencji CC BY 4.0](THIRD_PARTY_NOTICES.md).
+
+[Historia wydań](CHANGELOG.md)
