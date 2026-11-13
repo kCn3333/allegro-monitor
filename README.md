@@ -1,10 +1,11 @@
 <h1><img src="docs/assets/branding/logo-128.png" alt="" width="64" height="64" align="middle"> Allegro Monitor</h1>
 
-[![CI](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
-[![Node.js 22](https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/en/download)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Fastify](https://img.shields.io/badge/Fastify-000000?logo=fastify&logoColor=white)](https://fastify.dev/)
-[![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
+[![CI](https://img.shields.io/github/actions/workflow/status/kCn3333/allegro-monitor/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=2b2b2b&passingColor=d8612c&failingColor=b42318)](https://github.com/kCn3333/allegro-monitor/actions/workflows/ci.yml)
+[![Node.js 22](https://img.shields.io/badge/Node.js-22-d8612c?style=flat-square&logo=nodedotjs&logoColor=white&labelColor=2b2b2b)](https://nodejs.org/en/download)
+[![TypeScript 5](https://img.shields.io/badge/TypeScript-5-d8612c?style=flat-square&logo=typescript&logoColor=white&labelColor=2b2b2b)](https://www.typescriptlang.org/)
+[![Fastify 5](https://img.shields.io/badge/Fastify-5-d8612c?style=flat-square&logo=fastify&logoColor=white&labelColor=2b2b2b)](https://fastify.dev/)
+[![SQLite 3](https://img.shields.io/badge/SQLite-3-d8612c?style=flat-square&logo=sqlite&logoColor=white&labelColor=2b2b2b)](https://sqlite.org/)
+[![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-d8612c?style=flat-square&logo=docker&logoColor=white&labelColor=2b2b2b)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
 
 Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel aplikacji. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
 
