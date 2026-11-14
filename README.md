@@ -53,6 +53,8 @@ Aktualizację wykonuje się ręcznie w Portainerze:
 2. W zmiennych środowiskowych stosu ustaw `IMAGE_TAG` na `latest` albo pełny SHA wybranego, opublikowanego commita. Compose użyje obrazu `ghcr.io/kcn3333/allegro-monitor:<IMAGE_TAG>`.
 3. Zaktualizuj stos z włączonym ponownym pobraniem obrazu, zachowując pozostałe zmienne, porty i wolumen danych. Po aktualizacji sprawdź stan kontenera oraz dostęp do panelu.
 
+Przed aktualizacją wykonaj [backup i próbne odtworzenie](docs/operations.md). Dokument opisuje też zgodność obrazu z bazą przy rollbacku.
+
 ## Konfiguracja
 
 Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo. Poniższa tabela opisuje zmienne aplikacji; dostarczony Compose przekazuje tylko wskazane w nim ustawienia.
