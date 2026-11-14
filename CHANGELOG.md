@@ -14,6 +14,13 @@ Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 - Przyciski „Otwórz Allegro” i „Usuń” w kartach monitorów są wyrównane do prawej również na małych ekranach.
 - Usunięto powtarzający się nagłówek „Lekki monitor nowych ofert Allegro”.
 
+- Walidacja danych: odrzucane są błędne typy danych parowania i nazw monitorów przed zużyciem kodu lub zmianą danych. Miniatury wymagają HTTPS i domeny `allegroimg.com` lub jej subdomeny, bez danych logowania; błędne adresy są pomijane także w historii i kolejce Telegrama, bez odrzucania ofert.
+- Kody parowania: ujednolicono sprawdzanie 10-minutowej ważności i usuwanie wygasłych wpisów. Limit 100 aktywnych kodów zwraca `429` z `Retry-After`; generowanie kolejnych nie unieważnia wcześniejszych.
+- Ochrona panelu: poświadczenia są porównywane przez skróty HMAC-SHA-256 o stałej długości, bez unieważniania sesji. Dodano jawną listę `TRUST_PROXY` dla limitowania za zaufanym proxy. Skrypty panelu przeniesiono do lokalnych plików, usunięto inline handlery i `unsafe-inline` ze `script-src`; dodano testy Chromium.
+- Telegram i konfiguracja: Compose działa bez tokenu bota, a decyzja o fallbacku zdjęcie → tekst korzysta ze statusu 400 zamiast treści błędu, z zachowaniem kolejki i ponowień. Poprawiono FAQ o metadanych urządzeń oraz przykładowe zmienne i dokumentację, w tym minimum retencji 2 i różnice między aplikacją a Compose.
+- Zależności: akcje GitHub przypięto do pełnych SHA, a oba etapy obrazu Node 22 bookworm-slim do tego samego digestu wieloplatformowego. Dodano cotygodniowe aktualizacje Dependabota dla akcji i Dockera, z blokadą zmiany głównej wersji Node. npm w obrazie runtime zaktualizowano do 12.2.2, usuwając blokujące wyniki skanu w jego zależnościach.
+- Publikacja obrazów: Trivy skanuje końcowy obraz runtime przed logowaniem do GHCR. HIGH/CRITICAL z dostępną poprawką oraz błędy skanera lub pobrania bazy blokują publikację; pełny JSON pozostaje artefaktem także po odrzuceniu obrazu. Publikowany jest ten sam obraz jako `latest` i SHA, bez ponownego builda. Usunięto nieużywany workflow SSH i opisano ręczną aktualizację przez Portainera.
+
 ## 1.1.8 — 2026-11-14
 
 - Zwiększono czytelność ikon rozszerzenia: biały znak z lupą i książkami na pomarańczowym tle, z uproszczonymi detalami.
@@ -25,6 +32,21 @@ Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 - Wprowadzono logo z lupą i książkami w panelu, na ekranie logowania, w favikonie i ikonie skrótu Apple.
 - Nagłówek panelu pokazuje wersję aplikacji z `package.json` i link do repozytorium zamiast opisu pod nazwą.
 - Rozszerzenie używa nowego logo w popupie, pasku narzędzi, liście rozszerzeń i powiadomieniach. Paczka ZIP zawiera ikony 16, 32, 48 i 128 px.
+
+## 1.1.6 — 2026-10-04
+
+Źródło zmiany manifestu z 1.1.5 na 1.1.6: [e89ecd3](https://github.com/kCn3333/allegro-monitor/commit/e89ecd3fdc224ef5a939ec7e9fc7071e4b2d0053).
+
+- Dodano lokalne ikony SVG Font Awesome w panelu i popupie rozszerzenia, w tym oznaczenia systemów urządzeń, bez pobierania ikon z CDN.
+- Paczka rozszerzenia zawiera generowane `popup-icons.js` i informację o licencji ikon CC BY 4.0. Kliknięcie ikony wewnątrz przycisku uruchamia właściwą akcję popupu.
+
+## 1.1.5 — 2026-10-03
+
+Źródło zmiany manifestu z 1.1.4 na 1.1.5: [81a1ce1](https://github.com/kCn3333/allegro-monitor/commit/81a1ce12130a9928de3460bdd14ed280b3746b5c).
+
+- Dodano osobną stronę urządzeń z wersją rozszerzenia, metadanymi systemu i przeglądarki, czasem kontaktu, stanem aktywności i liczbą otwartych kart monitorów. Rozszerzenie przekazuje metadane podczas synchronizacji.
+- Panel, urządzenia, FAQ i instalacja rozszerzenia korzystają ze wspólnego układu z nawigacją i przełącznikiem motywu. Strona rozszerzenia udostępnia pobieranie ZIP i generowanie kodu parowania, a lista urządzeń odświeża się co minutę.
+- Uzupełnienie z 2026-10-04, nadal przy manifeście 1.1.5 ([a75a475](https://github.com/kCn3333/allegro-monitor/commit/a75a47595bd9edeb604fadae407bfa26aab838a2)): uproszczono karty, dodano zmianę nazw urządzeń i ochronę edycji przed odświeżaniem; usunięto zapisywanie i pokazywanie IP urządzeń.
 
 ## 1.1.4 — 2026-09-29
 
@@ -39,7 +61,9 @@ Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 - Poprawiono FAQ dotyczące blokady logowania i udokumentowano wybór adresu backendu przez rozszerzenie.
 - Ujednolicono wspólne kolumny zapytań monitorów i usunięto nieużywane dane diagnostyczne oraz zmienną testową. Historyczne kolumny i migracje pozostają obsługiwane.
 
-## 1.1.2 — niewydane
+## 1.1.2 — niewydane (wpis historyczny)
+
+Wpis i manifest z wersją 1.1.2 dodano 2026-09-09 w [a7ccb32](https://github.com/kCn3333/allegro-monitor/commit/a7ccb3202ccc8a1c2b4ee2f2bd661942c5c10f4d), a zmiany scalono tego dnia przez [PR #4](https://github.com/kCn3333/allegro-monitor/pull/4). Zachowano historyczną etykietę „niewydane”: nie potwierdzono osobnego wydania 1.1.2 tagiem ani GitHub Release. Poniższe zmiany są już w historii `main`; wpis nie oznacza oczekujących prac.
 
 - Usunięto nieużywany harmonogram backendu oraz funkcje wywoływane wyłącznie przez testy. Historyczna kolumna `next_check_at` pozostaje zgodna z istniejącymi bazami; harmonogram prowadzi rozszerzenie.
 - Każda próba w `checkDue()` kończy się pojedynczym zapisem `finishAttempt()`, przed zgłoszeniem błędu lub przerwaniem cyklu.
