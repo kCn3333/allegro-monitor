@@ -190,12 +190,13 @@ app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
   return reply.send({ token });
 });
 
-app.post<{ Body: { name?: string; url?: string; intervalMinutes?: number } }>("/api/extension/monitors", async (request, reply) => {
+app.post<{ Body: { name?: unknown; url?: string; intervalMinutes?: number } }>("/api/extension/monitors", async (request, reply) => {
   const clientId = extensionClientId(request, reply);
   if (!clientId) return;
-  const name = request.body?.name?.trim();
+  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+  if (!name || name.length > 100) return reply.code(400).send("Nieprawidłowe dane monitora");
   const interval = Number(request.body?.intervalMinutes);
-  if (!name || name.length > 100 || !allowedIntervals.has(interval)) return reply.code(400).send("Nieprawidłowe dane monitora");
+  if (!allowedIntervals.has(interval)) return reply.code(400).send("Nieprawidłowe dane monitora");
   let url: URL; try { url = assertAllegroUrl(request.body?.url || ""); } catch (error) { return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowy URL"); }
   const existing = store.findMonitorByUrl(url.toString());
   if (existing) {
@@ -295,9 +296,9 @@ app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:
   return reply.redirect("/");
 });
 
-app.post<{ Params: { id: string }; Body: { name?: string } }>("/monitors/:id/rename", async (request, reply) => {
+app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/monitors/:id/rename", async (request, reply) => {
   const id = parseMonitorId(request.params.id);
-  const name = request.body?.name?.trim() || "";
+  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
   if (!id || !name || name.length > 100 || !store.getMonitor(id)) return reply.code(400).send("Nieprawidłowa nazwa monitora");
   store.renameMonitor(id, name);
   return reply.redirect("/");
