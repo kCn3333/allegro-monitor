@@ -22,8 +22,8 @@ test("validates results received from the extension", () => {
   assert.deepEqual(validateListings([{
     externalId: "1234567890", title: "Wyznanie maski",
     url: "https://allegro.pl/oferta/wyznanie-maski-yukio-mishima-1234567890",
-    price: "42,00 zł", imageUrl: "https://img.example/a.jpg"
-  }]), [{ externalId: "1234567890", title: "Wyznanie maski", url: "https://allegro.pl/oferta/wyznanie-maski-yukio-mishima-1234567890", price: "42,00 zł", imageUrl: "https://img.example/a.jpg" }]);
+    price: "42,00 zł", imageUrl: "https://a.allegroimg.com/a.jpg"
+  }]), [{ externalId: "1234567890", title: "Wyznanie maski", url: "https://allegro.pl/oferta/wyznanie-maski-yukio-mishima-1234567890", price: "42,00 zł", imageUrl: "https://a.allegroimg.com/a.jpg" }]);
 });
 
 test("accepts a grouped Allegro product reported by the extension", () => {

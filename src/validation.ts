@@ -1,5 +1,18 @@
 import type { Listing } from "./types.js";
 
+export function validateImageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2000) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password ||
+      (url.hostname !== "allegroimg.com" && !url.hostname.endsWith(".allegroimg.com"))) return null;
+    const normalized = url.toString();
+    return normalized.length <= 2000 ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
 export function assertAllegroUrl(raw: string): URL {
   const url = new URL(raw);
   if (url.protocol !== "https:" || !/(^|\.)allegro\.pl$/i.test(url.hostname)) {
@@ -25,7 +38,7 @@ export function validateListings(input: unknown): Listing[] {
     return {
       externalId, title, url: url.toString(),
       price: value.price == null ? null : String(value.price).slice(0, 100),
-      imageUrl: value.imageUrl == null ? null : String(value.imageUrl).slice(0, 2000)
+      imageUrl: validateImageUrl(value.imageUrl)
     };
   });
 }

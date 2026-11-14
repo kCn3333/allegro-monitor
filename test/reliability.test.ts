@@ -71,7 +71,7 @@ test("Telegram success, photo fallback, network, timeout, rate limit and permane
   for (const status of [200, 400, 401, 403, 429, 500]) {
     let calls = 0;
     const fetcher = (async () => { calls++; return new Response(JSON.stringify({ ok: status === 200 || calls === 2, parameters: { retry_after: 25 } }), { status: calls === 2 ? 200 : status }); }) as typeof fetch;
-    const promise = deliverTelegram("test", "1", "test", { ...listing(1), imageUrl: "https://example.com/image.jpg" }, fetcher);
+    const promise = deliverTelegram("test", "1", "test", { ...listing(1), imageUrl: "https://a.allegroimg.com/image.jpg" }, fetcher);
     if (status === 200 || status === 400) await promise;
     else await assert.rejects(promise, (error: TelegramError) => {
       assert.equal(error.permanent, status === 401 || status === 403);

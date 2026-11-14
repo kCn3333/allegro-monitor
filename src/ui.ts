@@ -3,6 +3,7 @@ import { brandHead, brandLogo } from "./branding.js";
 import { renderLayout } from "./layout.js";
 import type { Listing, Monitor, MonitorExclusion } from "./types.js";
 import { config } from "./config.js";
+import { validateImageUrl } from "./validation.js";
 
 const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -54,8 +55,9 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
 
 function offerCard(listing: Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }): string {
   const exclusionLabel = listing.externalId.startsWith("product:") ? "Wyklucz to wydanie" : "Wyklucz tę ofertę";
+  const imageUrl = validateImageUrl(listing.imageUrl);
   return `<article class="offer-card${listing.fromLatestCheck ? " latest" : ""}">
-    <div class="offer-image">${listing.imageUrl ? `<img src="${esc(listing.imageUrl)}" alt="" loading="lazy">` : "<span>📖</span>"}</div>
+    <div class="offer-image">${imageUrl ? `<img src="${esc(imageUrl)}" alt="" loading="lazy">` : "<span>📖</span>"}</div>
     <div class="offer-content"><span class="eyebrow">${listing.fromLatestCheck ? `<span class="latest-label">Nowa</span> · ` : ""}${esc(listing.monitorName)} · ${date(listing.firstSeenAt)}</span>
       <a href="${esc(listing.url)}" target="_blank" rel="noreferrer">${esc(listing.title)}</a>
       <strong>${esc(listing.price || "Cena nieznana")}</strong><form class="exclude-form" method="post" action="/monitors/${listing.monitorId}/exclusions" onsubmit="return confirm('Ta dokładna pozycja nie będzie już uwzględniana. Kontynuować?')"><input type="hidden" name="externalId" value="${esc(listing.externalId)}"><button>${exclusionLabel}</button></form></div>
