@@ -133,6 +133,22 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   const other = page.locator(`[data-monitor-id="${removable}"]`);
   assert.match(await page.locator(".about blockquote").innerText(), /specjalnie dla Wioli/);
   assert.equal(await page.locator(".about figcaption").innerText(), "kCn & Codex");
+  assert.equal(await page.locator(".about").evaluate(el => getComputedStyle(el).textAlign), "center");
+  assert.ok(await page.locator(".about blockquote").evaluate(el => parseFloat(getComputedStyle(el).fontSize) <= 21));
+  const heart = page.locator(".dedication-hearts > span").first();
+  assert.equal(await heart.evaluate(el => getComputedStyle(el).opacity), "0");
+  await page.locator(".about").hover();
+  assert.equal(await heart.evaluate(el => getComputedStyle(el).animationName), "dedication-float");
+  assert.equal(await page.locator(".dedication-hearts").getAttribute("aria-hidden"), "true");
+  assert.equal(await page.locator(".dedication-hearts").evaluate(el => getComputedStyle(el).pointerEvents), "none");
+  await page.mouse.move(0, 0);
+  assert.equal(await heart.evaluate(el => getComputedStyle(el).opacity), "0");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator(".about").hover();
+  assert.equal(await heart.evaluate(el => getComputedStyle(el).animationName), "none");
+  assert.ok(await heart.evaluate(el => Number(getComputedStyle(el).opacity) > 0));
+  await page.mouse.move(0, 0);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   const open = await card.getByRole("link", { name: "Otwórz Allegro" }).boundingBox();
   const remove = await card.getByRole("button", { name: "Usuń" }).boundingBox();
   assert.ok(open && remove && open.x < remove.x);
@@ -204,6 +220,9 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   assert.match(await page.locator("#last-sync").innerText(), /Ostatnia synchronizacja:/);
   assert.ok(await page.locator("#last-sync").getAttribute("datetime"));
   assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "connection-pulse");
+  const heading = await page.locator("header h1").boundingBox();
+  const connection = await page.locator("#connection").boundingBox();
+  assert.ok(heading && connection && connection.x >= heading.x + heading.width && Math.abs(connection.y - heading.y) <= 4, "connection stays in the upper-right corner beside the brand");
   for (const id of ["name", "interval"]) {
     const label = await page.locator(`label[for="${id}"] > span`).boundingBox();
     const input = await page.locator(`#${id}`).boundingBox();
@@ -211,6 +230,20 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   }
   assert.equal(await page.locator(".popup-footer").innerText(), "kCn & Codex · dla Wioli 📚");
   assert.ok(await page.locator(".popup-footer").isVisible());
+  assert.ok(await page.locator(".popup-footer").evaluate(el => document.body.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom <= 9));
+  assert.equal(await page.locator(".popup-footer").evaluate(el => getComputedStyle(el).borderTopStyle), "solid");
+  const snoozeRow = await page.locator(".snooze-row").boundingBox();
+  const addSection = await page.locator("#connected").boundingBox();
+  assert.ok(snoozeRow && addSection && snoozeRow.y + snoozeRow.height <= addSection.y, "snooze precedes the add-monitor section");
+  const rowCenters = await page.locator(".snooze-row > *").evaluateAll(elements => elements.map(el => {
+    const box = el.getBoundingClientRect(); return box.y + box.height / 2;
+  }));
+  assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 1, "snooze label, duration and switch share one row");
+  assert.equal(await page.getByText("Monitorowanie i lista nowych ofert pozostają aktywne.", { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Obserwowane", exact: true }).click();
+  assert.equal(await page.locator(".popup-footer").isVisible(), false);
+  await page.getByRole("button", { name: "Monitor", exact: true }).click();
+  assert.equal(await page.locator(".popup-footer").isVisible(), true);
   const toggle = page.getByRole("switch", { name: "Uśpij powiadomienia" });
   const duration = page.getByLabel("Czas uśpienia");
   assert.equal(await toggle.isChecked(), false);

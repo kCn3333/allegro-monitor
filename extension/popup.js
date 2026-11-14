@@ -23,6 +23,7 @@ function showTab(name) {
     const active = panel.dataset.panel === name;
     panel.hidden = !active; panel.classList.toggle("active", active);
   });
+  $(".popup-footer").hidden = name !== "home";
   message("");
 }
 
@@ -43,8 +44,9 @@ async function render() {
   $("#snooze-duration").value = snooze.duration;
   $("#snooze-duration").disabled = paused;
   $("#snooze-status").textContent = paused
-    ? `${snooze.until === null ? "Uśpione do odwołania." : `Uśpione do ${new Date(snooze.until).toLocaleString("pl", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.`} Monitorowanie i lista nowych ofert nadal działają.`
-    : "Monitorowanie i lista nowych ofert pozostają aktywne.";
+    ? snooze.until === null ? "Uśpione do odwołania." : `Uśpione do ${new Date(snooze.until).toLocaleString("pl", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.`
+    : "Powiadomienia aktywne.";
+  $("#snooze-enabled").title = $("#snooze-status").textContent;
   const connection = !data.token ? "unpaired" : data.connection === "online" ? "online" : data.connection === "unauthorized" ? "unauthorized" : "offline";
   $("#connection").dataset.state = connection;
   $("#connection-label").textContent = { unpaired: "Niesparowane", online: "Połączono", unauthorized: "Token odrzucony — sparuj ponownie", offline: "Serwer niedostępny" }[connection];

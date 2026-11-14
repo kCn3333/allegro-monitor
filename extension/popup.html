@@ -8,13 +8,11 @@
   <div class="tab-panel active" data-panel="home">
     <header><div><h1><img class="brand-logo" src="icon-128.png" width="32" height="32" alt="">Allegro Monitor</h1><p id="extension-version"></p><p id="version-status" class="version-status">Sprawdzanie wersji…</p></div><div id="connection" class="connection-status" role="status" data-state="unpaired"><span class="connection-dot" aria-hidden="true"></span><div><span id="connection-label">Łączenie…</span><time id="last-sync" hidden></time></div></div></header>
     <section id="pairing" hidden><h2><span data-icon="pair" aria-hidden="true"></span>Połącz z serwerem</h2><label>Adres serwera<input id="backend" type="url" readonly></label><label>Kod parowania<input id="code" maxlength="9" placeholder="ABCD-1234"></label><button id="pair"><span data-icon="pair" aria-hidden="true"></span>Połącz</button><p class="hint">Kod wygenerujesz na stronie instalacyjnej panelu.</p></section>
-    <section id="connected" hidden><h2>Dodaj bieżącą kartę</h2><label class="inline-field" for="name"><span>Nazwa</span><input id="name" placeholder="Twoja nazwa monitora"></label><label class="inline-field" for="interval"><span>Interwał</span><select id="interval"><option value="1">1 minuta</option><option value="5" selected>5 minut</option><option value="15">15 minut</option><option value="30">30 minut</option><option value="60">60 minut</option></select></label><button id="add"><span data-icon="add" aria-hidden="true"></span>Monitoruj tę kartę</button></section>
     <section id="notification-settings" hidden>
-      <label class="notify-control snooze-toggle" for="snooze-enabled"><span>Uśpij powiadomienia</span><input id="snooze-enabled" type="checkbox" role="switch" aria-describedby="snooze-status"><span class="switch-track" aria-hidden="true"></span></label>
-      <label class="snooze-duration" for="snooze-duration">Czas uśpienia<select id="snooze-duration"><option value="hour">na godzinę</option><option value="day">na dobę</option><option value="forever">do odwołania</option></select></label>
-      <p id="snooze-status" class="hint" role="status">Monitorowanie i lista nowych ofert pozostają aktywne.</p>
+      <div class="snooze-row"><span id="snooze-label">Uśpij powiadomienia</span><select id="snooze-duration" aria-label="Czas uśpienia"><option value="hour">na godzinę</option><option value="day">na dobę</option><option value="forever">do odwołania</option></select><label class="notify-control snooze-toggle" for="snooze-enabled"><input id="snooze-enabled" type="checkbox" role="switch" aria-labelledby="snooze-label" aria-describedby="snooze-status"><span class="switch-track" aria-hidden="true"></span></label></div>
+      <p id="snooze-status" class="sr-only" role="status"></p>
     </section>
-    <footer class="popup-footer">kCn &amp; Codex · dla Wioli 📚</footer>
+    <section id="connected" hidden><h2>Dodaj bieżącą kartę</h2><label class="inline-field" for="name"><span>Nazwa</span><input id="name" placeholder="Twoja nazwa monitora"></label><label class="inline-field" for="interval"><span>Interwał</span><select id="interval"><option value="1">1 minuta</option><option value="5" selected>5 minut</option><option value="15">15 minut</option><option value="30">30 minut</option><option value="60">60 minut</option></select></label><button id="add"><span data-icon="add" aria-hidden="true"></span>Monitoruj tę kartę</button></section>
   </div>
   <div class="tab-panel" data-panel="watched" hidden>
     <div class="section-title panel-title"><div><h2><span data-icon="eye" aria-hidden="true"></span>Obserwowane karty</h2><p>Wspólna lista z serwera</p></div><button class="link" id="sync" title="Pobierz aktualną listę monitorów"><span data-icon="refresh" aria-hidden="true"></span>Odśwież</button></div>
@@ -25,4 +23,5 @@
     <div id="unread"></div><p class="empty" id="unread-empty" hidden>Brak nowych ofert.</p>
   </div>
   <p id="message"></p>
+  <footer class="popup-footer">kCn &amp; Codex · dla Wioli 📚</footer>
 </main><script type="module" src="popup.js"></script></body></html>
