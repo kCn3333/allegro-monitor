@@ -439,7 +439,11 @@ async function checkDue(forceMonitorId = null) {
   } finally { checking = false; }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!sender?.id || sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, error: "Nieprawidłowy nadawca wiadomości" });
+    return false;
+  }
   (async () => {
     if (message.type === "pair") return pair(message.code);
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));

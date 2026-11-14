@@ -6,27 +6,29 @@ import { randomUUID } from "node:crypto";
 
 const url = "https://allegro.pl/listing?string=mishima&price_to=50";
 const watch = { monitorId: 1, name: "old", url, tabId: 1, enabled: true, intervalMinutes: 5, nextCheckAt: 0 };
+const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+const popupSender = { id: extensionId, url: `chrome-extension://${extensionId}/popup.html`, origin: `chrome-extension://${extensionId}` };
 function deferred() { let resolve!: (value?: any) => void; const promise = new Promise<any>(r => { resolve = r; }); return { promise, resolve }; }
 function harness(initial: any = {}) {
   let saved: any = { token: "test", watched: [{ ...watch }], unread: [], receivedThrough: 0, ...initial };
   let listener: any;
   const updated = new Set<any>();
-  const h: any = { tabs: [{ id: 1, url }], posts: [], notices: [], reloads: [], now: 1000000,
+  const h: any = { tabs: [{ id: 1, url }], posts: [], notices: [], reloads: [], effects: [], now: 1000000,
     load: async () => {}, highlight: async () => {}, beforeWrite: async (_patch: any) => {},
     request: async () => ({ monitors: [], notifications: [] }), read: async () => ({ empty: true, listings: [], diagnostic: { url } }) };
   const noop = () => {};
   const chrome = {
-    storage: { local: { get: async (defaults: any) => structuredClone({ ...defaults, ...saved }), set: async (patch: any) => { await h.beforeWrite(patch); saved = structuredClone({ ...saved, ...patch }); } } },
+    storage: { local: { get: async (defaults: any) => { h.effects.push("storage.get"); return structuredClone({ ...defaults, ...saved }); }, set: async (patch: any) => { h.effects.push("storage.set"); await h.beforeWrite(patch); saved = structuredClone({ ...saved, ...patch }); } } },
     alarms: { get: async () => true, onAlarm: { addListener: noop } },
-    action: { setBadgeBackgroundColor: async () => {}, setBadgeText: async () => {} },
-    runtime: { onInstalled: { addListener: noop }, onStartup: { addListener: noop }, onMessage: { addListener: (fn: any) => { listener = fn; } } },
+    action: { setBadgeBackgroundColor: async () => { h.effects.push("action.setBadgeBackgroundColor"); }, setBadgeText: async () => { h.effects.push("action.setBadgeText"); } },
+    runtime: { id: extensionId, onInstalled: { addListener: noop }, onStartup: { addListener: noop }, onMessage: { addListener: (fn: any) => { listener = fn; } } },
     notifications: { create: async (...args: any[]) => h.notices.push(args) },
-    tabs: { query: async () => structuredClone(h.tabs), get: async (id: number) => h.tabs.find((t: any) => t.id === id),
-      update: async (_id: number, options: any) => { assert.equal(options.url, undefined); },
-      reload: async (id: number) => { h.reloads.push(id); await h.load(); for (const fn of updated) fn(id, { status: "complete" }); },
+    tabs: { query: async () => { h.effects.push("tabs.query"); return structuredClone(h.tabs); }, get: async (id: number) => { h.effects.push("tabs.get"); return h.tabs.find((t: any) => t.id === id); },
+      update: async (_id: number, options: any) => { h.effects.push("tabs.update"); assert.equal(options.url, undefined); },
+      reload: async (id: number) => { h.effects.push("tabs.reload"); h.reloads.push(id); await h.load(); for (const fn of updated) fn(id, { status: "complete" }); },
       onUpdated: { addListener: (fn: any) => updated.add(fn), removeListener: (fn: any) => updated.delete(fn) },
       onRemoved: { addListener: noop }, onCreated: { addListener: noop } },
-    scripting: { executeScript: async ({ func }: any) => [{ result: await (func.name === "markNewOffers" ? h.highlight() : h.read()) }] }
+    scripting: { executeScript: async ({ func }: any) => { h.effects.push("scripting.executeScript"); return [{ result: await (func.name === "markNewOffers" ? h.highlight() : h.read()) }]; } }
   };
   class Clock extends Date { static now() { return h.now; } }
   let timerId = 0;
@@ -48,9 +50,100 @@ function harness(initial: any = {}) {
   vm.runInContext(fs.readFileSync("extension/service-worker.js", "utf8").replace(/^import .*backend-config\.js.*;\n/m, "").replace(/\nvoid initialize\(\);\s*$/, ''), context);
   h.run = (code: string) => vm.runInContext(code, context);
   h.state = () => saved;
-  h.message = (message: any) => new Promise(resolve => listener(message, {}, resolve));
+  h.deliver = (message: any, sender: any) => {
+    let keepAlive: boolean | undefined;
+    const responses: any[] = [];
+    const response = new Promise(resolve => { keepAlive = listener(message, sender, (result: any) => {
+      const copy = structuredClone(result); responses.push(copy); resolve(copy);
+    }); });
+    return { keepAlive, response, responses };
+  };
+  h.message = (message: any) => h.deliver(message, popupSender).response;
   return h;
 }
+
+const popupOperations = [
+  { type: "pair", code: "ABCD-1234" },
+  { type: "sync" },
+  { type: "add-current", name: "Added", intervalMinutes: 15 },
+  { type: "check", monitorId: 1 },
+  { type: "notification-state", monitorId: 1, enabled: false },
+  { type: "clear-unread" }
+];
+
+for (const message of popupOperations) {
+  test(`own popup sender can ${message.type} with an asynchronous response`, async () => {
+    const h = harness({ backendUrl: "https://monitor.example", token: "existing-token",
+      unread: [{ eventId: 7, title: "Unread" }], receivedThrough: 7 });
+    let notificationsEnabled = true;
+    h.request = async (path: string, body: any) => {
+      if (path.endsWith("/pair")) return { token: "replacement-token" };
+      if (path === "/api/extension/monitors") return { id: 2, name: "Added" };
+      if (path.endsWith("/notification-state")) notificationsEnabled = body.enabled;
+      return { monitors: [{ id: 1, name: "Synced", url, enabled: true, intervalMinutes: 5, notificationsEnabled }], notifications: [] };
+    };
+    const delivery = h.deliver(message, popupSender);
+    assert.equal(delivery.keepAlive, true);
+    assert.deepEqual(delivery.responses, [], "valid operations respond after the listener returns");
+    const response = await delivery.response;
+    assert.deepEqual(response, { ok: true, result: message.type === "add-current" ? { id: 2, name: "Added" } : true });
+    assert.equal(delivery.responses.length, 1);
+    assert.equal(h.state().token, message.type === "pair" ? "replacement-token" : "existing-token");
+    if (message.type === "pair") {
+      assert.equal(h.posts[0].path, "/api/extension/pair");
+      assert.equal(h.posts[0].body.code, message.code);
+      assert.equal(h.state().watched[0].monitorId, 1, "same-server pairing preserves monitors");
+    }
+    if (message.type === "sync") {
+      assert.equal(h.posts[0].path, "/api/extension/presence");
+      assert.equal(h.state().watched[0].name, "Synced");
+    }
+    if (message.type === "add-current") {
+      assert.deepEqual(h.posts[0], { path: "/api/extension/monitors", body: { name: "Added", url, intervalMinutes: 15 } });
+      assert.equal(h.state().watched[0].monitorId, 2);
+    }
+    if (message.type === "check") {
+      assert.deepEqual(h.reloads, [1]);
+      assert.ok(h.posts.some((post: any) => post.path === "/api/extension/monitors/1/results"));
+    }
+    if (message.type === "notification-state") {
+      assert.equal(h.posts[0].path, "/api/extension/monitors/1/notification-state");
+      assert.deepEqual(h.posts[0].body, { enabled: false });
+      assert.equal(h.state().watched[0].notificationsEnabled, false);
+    }
+    if (message.type === "clear-unread") {
+      assert.deepEqual(h.state().unread, []);
+      assert.equal(h.state().receivedThrough, 7);
+      assert.deepEqual(h.posts, []);
+    }
+  });
+
+  test(`foreign or missing popup sender cannot ${message.type} or cause side effects`, async () => {
+    for (const sender of [{ ...popupSender, id: "ponmlkjihgfedcbaponmlkjihgfedcba" },
+      { url: popupSender.url, origin: popupSender.origin }, { id: "" }, { id: null }, undefined, null]) {
+      const h = harness({ backendUrl: "https://monitor.example", unread: [{ eventId: 7 }], receivedThrough: 7 });
+      const before = structuredClone(h.state());
+      const delivery = h.deliver(message, sender);
+      assert.equal(delivery.keepAlive, false);
+      assert.deepEqual(await delivery.response, { ok: false, error: "Nieprawidłowy nadawca wiadomości" });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(delivery.responses.length, 1);
+      assert.deepEqual(h.state(), before);
+      assert.deepEqual(h.posts, []);
+      assert.deepEqual(h.effects, [], "no storage access, badge updates, tab operations or script injection");
+      assert.deepEqual(h.notices, []);
+      assert.deepEqual(h.reloads, []);
+    }
+  });
+}
+
+test("sender validation precedes even reading the requested operation", async () => {
+  const h = harness();
+  const message = Object.defineProperty({}, "type", { get() { throw Error("Operation accessed before authorization"); } });
+  const response = await h.deliver(message, { id: "foreign" }).response;
+  assert.deepEqual(response, { ok: false, error: "Nieprawidłowy nadawca wiadomości" });
+  assert.deepEqual(h.effects, []);
+});
 
 test("tab identity includes price, category, pagination and domain; recovers changed tab id", () => {
   const h = harness();

@@ -4,6 +4,10 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.1.9 — 2026-11-14
+
+- Service worker przyjmuje wiadomości tylko od własnego rozszerzenia; obcy lub brakujący identyfikator nadawcy jest odrzucany przed wykonaniem operacji. Aktualizacja zachowuje parowanie.
+
 ## Backend — 2026-11-14
 
 - Wersja w nagłówku odpowiada manifestowi rozszerzenia. Link do GitHuba jest dostępny pod samą ikoną z opisem po najechaniu.
