@@ -20,6 +20,29 @@
     updateThemeIcon();
   });
 
+  const dedication = document.querySelector(".about");
+  const hearts = dedication?.querySelectorAll(".dedication-hearts > span") || [];
+  const randomizeHeart = (heart, timing = false) => {
+    heart.style.setProperty("--heart-x", `${6 + Math.random() * 88}%`);
+    heart.style.setProperty("--heart-size", `${12 + Math.random() * 12}px`);
+    heart.style.setProperty("--heart-drift", `${Math.random() * 80 - 40}px`);
+    heart.style.setProperty("--heart-rise", `-${dedication.clientHeight + 30 + Math.random() * 50}px`);
+    heart.style.setProperty("--heart-start-rotation", `${Math.random() * 50 - 25}deg`);
+    heart.style.setProperty("--heart-end-rotation", `${Math.random() * 50 - 25}deg`);
+    // Keep timing stable within a run so changing it cannot jump the animation forward.
+    if (timing) {
+      heart.style.setProperty("--heart-duration", `${2.6 + Math.random() * 2}s`);
+      heart.style.setProperty("--heart-delay", `${Math.random() * 1.4}s`);
+    }
+  };
+  for (const heart of hearts) {
+    randomizeHeart(heart, true);
+    heart.addEventListener("animationiteration", () => randomizeHeart(heart));
+  }
+  dedication?.addEventListener("mouseenter", () => {
+    for (const heart of hearts) randomizeHeart(heart, true);
+  });
+
   // Delegation also covers device cards replaced by the periodic refresh.
   document.addEventListener("submit", event => {
     const form = event.target;
