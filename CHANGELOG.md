@@ -4,6 +4,12 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## Backend — 2026-11-14
+
+- Wersja w nagłówku odpowiada manifestowi rozszerzenia. Link do GitHuba jest dostępny pod samą ikoną z opisem po najechaniu.
+- Przyciski „Otwórz Allegro” i „Usuń” w kartach monitorów są wyrównane do prawej również na małych ekranach.
+- Usunięto powtarzający się nagłówek „Lekki monitor nowych ofert Allegro”.
+
 ## 1.1.8 — 2026-11-14
 
 - Zwiększono czytelność ikon rozszerzenia: biały znak z lupą i książkami na pomarańczowym tle, z uproszczonymi detalami.

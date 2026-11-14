@@ -76,7 +76,7 @@ test("all pages share navigation, active page, theme and device entry point", ()
     assert.match(html, /id="theme-toggle"/);
     assert.match(html, /<footer/);
     assert.match(html, /<img class="logo" src="\/assets\/logo.png"/);
-    const version = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+    const version = JSON.parse(fs.readFileSync(path.join(config.extensionDirectory, "manifest.json"), "utf8")).version;
     assert.ok(html.includes(`>v${version}</span>`));
     assert.match(html, /href="https:\/\/github.com\/kCn3333\/allegro-monitor" target="_blank" rel="noopener noreferrer"/);
     assert.doesNotMatch(html, /Obserwuj rzadkie książki bez ciągłego odświeżania/);
