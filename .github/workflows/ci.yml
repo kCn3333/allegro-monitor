@@ -26,20 +26,63 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE_REF: ghcr.io/kcn3333/allegro-monitor:${{ github.sha }}
+      TRIVY_VERSION: 0.76.2
+      TRIVY_SHA256: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+      TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - name: Build runtime image locally
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
-          push: true
+          load: true
+          push: false
           tags: |
             ghcr.io/kcn3333/allegro-monitor:latest
             ghcr.io/kcn3333/allegro-monitor:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Install verified Trivy release
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$TRIVY_SHA256" "$archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/trivy-bin" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+      - name: Scan all runtime vulnerabilities
+        id: scan
+        run: |
+          trivy --config "" --timeout 10m image --image-src docker \
+            --scanners vuln --pkg-types os,library --ignorefile "" \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignore-unfixed=false \
+            --exit-code 0 --format json --output trivy-report.json "$IMAGE_REF"
+      - name: Block fixable HIGH and CRITICAL vulnerabilities
+        run: |
+          trivy --config "" --timeout 10m image --image-src docker \
+            --scanners vuln --pkg-types os,library --ignorefile "" \
+            --skip-db-update --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 "$IMAGE_REF"
+      - name: Upload full vulnerability report
+        if: ${{ always() && steps.scan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-report-${{ github.sha }}
+          path: trivy-report.json
+          if-no-files-found: error
+      - name: Log in to GHCR after scan approval
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish scanned image without rebuilding
+        run: |
+          docker push "$IMAGE_REF"
+          docker push ghcr.io/kcn3333/allegro-monitor:latest
