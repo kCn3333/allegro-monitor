@@ -34,10 +34,11 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
     <div class="check-feedback" role="status" hidden>${icon("refresh")}Odświeżanie wyników…</div>
     <div class="monitor-main">
       <div class="monitor-title"><span class="status-dot ${state.className}"></span><div>
-        <span class="monitor-created">Dodano ${day(monitor.createdAt)}</span><div class="monitor-name"><h3>${esc(monitor.name)}</h3><details class="rename"><summary aria-label="Edytuj nazwę" title="Edytuj nazwę">${icon("edit")}</summary><form method="post" action="/monitors/${monitor.id}/rename"><input name="name" value="${esc(monitor.name)}" maxlength="100" required><button>${icon("save")}Zapisz</button></form></details></div><p class="search-query">${esc(queryLabel(monitor.url))}</p>
+        <span class="monitor-created">Dodano ${day(monitor.createdAt)}</span><div class="monitor-name"><h3>${esc(monitor.name)}</h3><details class="rename"><summary aria-label="Edytuj nazwę" title="Edytuj nazwę">${icon("edit")}</summary><form method="post" action="/monitors/${monitor.id}/rename"><input name="name" value="${esc(monitor.name)}" maxlength="100" required><button>${icon("save")}Zapisz</button></form></details></div>
       </div></div>
       <div class="monitor-status"><span class="last-attempt">Ostatnia próba: ${date(monitor.lastCheckedAt)}</span>${monitor.lastCheckNewCount > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${monitor.lastCheckNewCount}</span>` : ""}<span class="status-pill ${state.className}">${state.label}</span><form class="toggle-form" method="post" action="/monitors/${monitor.id}/toggle"><label class="switch" title="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><input type="checkbox" ${monitor.enabled ? "checked" : ""} aria-label="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><span></span></label></form></div>
     </div>
+    <p class="search-query">${esc(queryLabel(monitor.url))}</p>
     <dl class="monitor-meta">
       <div><dt>Sprawdzanie</dt><dd>co ${monitor.intervalMinutes} min</dd></div>
       <div><dt>Śledzone pozycje</dt><dd>${monitor.currentListingsCount}</dd></div>
