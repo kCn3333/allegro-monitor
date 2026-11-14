@@ -4,6 +4,12 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.1.8 — 2026-11-14
+
+- Zwiększono czytelność ikon rozszerzenia: biały znak z lupą i książkami na pomarańczowym tle, z uproszczonymi detalami.
+- Przycisk „Rozszerzenie” ma neutralny wygląd i wyróżnienie tylko na aktywnej stronie. Wylogowanie jest dostępne pod ikoną z etykietą dla czytników ekranu i opisem po najechaniu.
+- Dodano subtelny gradient tła panelu w jasnym i ciemnym motywie.
+
 ## 1.1.7 — 2026-11-14
 
 - Wprowadzono logo z lupą i książkami w panelu, na ekranie logowania, w favikonie i ikonie skrótu Apple.
