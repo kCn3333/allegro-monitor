@@ -171,15 +171,21 @@ app.post("/api/extension/pairing-code", async (_request, reply) => {
   return reply.send({ code, expiresInSeconds: 600 });
 });
 
-app.post<{ Body: { code?: string; name?: string } }>("/api/extension/pair", async (request, reply) => {
+app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
   if (!allowAttempt(`pair:${request.ip}`, 12, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób parowania");
-  const code = request.body?.code?.trim().toUpperCase() || "";
+  const body = request.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send("Nieprawidłowe dane parowania");
+  const { code: rawCode, name } = body as Record<string, unknown>;
+  if (typeof rawCode !== "string" || (name !== undefined && typeof name !== "string")) {
+    return reply.code(400).send("Nieprawidłowe dane parowania");
+  }
+  const code = rawCode.trim().toUpperCase();
   const expires = pairingCodes.get(code);
   if (!expires || expires < Date.now()) { pairingCodes.delete(code); return reply.code(400).send("Kod jest nieprawidłowy lub wygasł"); }
   pairingCodes.delete(code);
   attempts.delete(`pair:${request.ip}`);
   const token = crypto.randomBytes(32).toString("base64url");
-  const clientId = store.addExtensionClient(request.body?.name || "Vivaldi", tokenHash(token));
+  const clientId = store.addExtensionClient(name || "Vivaldi", tokenHash(token));
   store.linkClientToAllMonitors(clientId);
   return reply.send({ token });
 });

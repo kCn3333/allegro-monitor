@@ -10,7 +10,7 @@ import { buildApp } from "../src/server.js";
 import { tokenHash } from "../src/security.js";
 import { renderDevices } from "../src/devices.js";
 
-async function fixture(t: any) {
+async function fixture(t: any, now?: () => number) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-devices-"));
   const settings = { ...config, databasePath: path.join(dir, "test.sqlite"), username: "owner", password: "test-password", sessionSecret: "s".repeat(32), telegramBotToken: "" };
   const store = new Store(settings.databasePath);
@@ -19,7 +19,7 @@ async function fixture(t: any) {
   const second = store.addExtensionClient("Second", tokenHash("second-token"));
   store.linkMonitorToAllClients(monitor, first);
   store.setNotificationsForClient(monitor, second, false);
-  const app = await buildApp({ config: settings, startWorker: false });
+  const app = await buildApp({ config: settings, startWorker: false, now });
   t.after(async () => { await app.close(); store.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const login = await app.inject({ method: "POST", url: "/login", payload: { username: settings.username, password: settings.password } });
   assert.equal(login.statusCode, 302);
@@ -138,4 +138,60 @@ test("device management fails closed when panel credentials are not configured",
     assert.equal((await app.inject({ method: "POST", url })).statusCode, 503);
   }
   assert.equal(store.listExtensionClients().length, 2);
+});
+
+for (const field of ["body", "code", "name"] as const) {
+  test(`pairing rejects invalid ${field} types without creating a device or consuming the code`, async t => {
+    const { app, store, cookie } = await fixture(t);
+    const code = (await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } })).json().code;
+    const before = store.listExtensionClients();
+    const invalid: unknown[] = [null, false, true, 0, 1, [], {}];
+    if (field === "body") invalid.push("text");
+    if (field !== "name") invalid.push(undefined);
+    for (const value of invalid) {
+      const payload = field === "body" ? value : { code, [field]: value };
+      const response = await app.inject({ method: "POST", url: "/api/extension/pair",
+        ...(payload === undefined ? {} : { headers: { "content-type": "application/json" }, payload: JSON.stringify(payload) }) });
+      assert.equal(response.statusCode, 400, `${field}: ${JSON.stringify(value)}`);
+      assert.equal(response.body, "Nieprawidłowe dane parowania");
+      assert.deepEqual(store.listExtensionClients(), before);
+    }
+    const paired = await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code, name: "Valid device" } });
+    assert.equal(paired.statusCode, 200);
+    assert.ok(store.touchExtensionClient(tokenHash(paired.json().token)));
+    assert.equal(store.listExtensionClients().length, before.length + 1);
+  });
+}
+
+test("successful pairing normalizes codes, preserves default names and is single-use", async t => {
+  const { app, store, monitor, cookie } = await fixture(t);
+  for (const name of [undefined, "", "Named device", "x".repeat(120)]) {
+    const code = (await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } })).json().code;
+    const payload = { code: `  ${code.toLowerCase()}  `, name };
+    const before = store.listExtensionClients().length;
+    const response = await app.inject({ method: "POST", url: "/api/extension/pair", payload });
+    assert.equal(response.statusCode, 200);
+    const clientId = store.touchExtensionClient(tokenHash(response.json().token));
+    assert.ok(clientId);
+    assert.equal(store.listExtensionClients().find(client => client.id === clientId)!.name, (name || "Vivaldi").slice(0, 100));
+    assert.equal(store.hasMonitorClient(monitor, clientId), true);
+    assert.equal((await app.inject({ method: "POST", url: "/api/extension/pair", payload })).statusCode, 400);
+    assert.equal(store.listExtensionClients().length, before + 1);
+  }
+});
+
+test("invalid pairing payloads count towards the 12-attempt limit, which expires and resets after success", async t => {
+  let now = 1000;
+  const { app, store, cookie } = await fixture(t, () => now);
+  const code = (await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } })).json().code;
+  const before = store.listExtensionClients().length;
+  const pair = (payload: object) => app.inject({ method: "POST", url: "/api/extension/pair", payload });
+  for (let i = 0; i < 12; i++) assert.equal((await pair({ code, name: {} })).statusCode, 400);
+  assert.equal((await pair({ code })).statusCode, 429);
+  assert.equal(store.listExtensionClients().length, before);
+  now += 15 * 60_000;
+  assert.equal((await pair({ code })).statusCode, 200);
+  assert.equal(store.listExtensionClients().length, before + 1);
+  for (let i = 0; i < 12; i++) assert.equal((await pair({ code: "invalid" })).statusCode, 400);
+  assert.equal((await pair({ code: "invalid" })).statusCode, 429);
 });
