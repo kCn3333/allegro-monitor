@@ -69,7 +69,7 @@ function offerCard(listing: Listing & { monitorId: number; monitorName: string; 
 export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>, exclusions: MonitorExclusion[]): string {
   const activeMonitors = monitors.filter(monitor => monitor.enabled && monitor.initialized && monitor.activeClientsCount > 0 && !monitor.lastError).length;
   return renderLayout("Panel", `
-    <figure class="about"><span class="dedication-hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span></span><blockquote>… z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</blockquote><figcaption>kCn &amp; Codex</figcaption></figure>
+    <figure class="about"><span class="dedication-hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span></span><blockquote>… z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</blockquote><figcaption>— Jacek</figcaption></figure>
     <section><div class="section-head"><h2>Obserwowane wyszukiwania</h2><span>${activeMonitors}/${monitors.length} aktywnych</span></div>
       <div class="monitor-list">${monitors.length ? monitors.map(monitor => monitorCard(monitor, exclusions.filter(exclusion => exclusion.monitorId === monitor.id))).join("") : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Otwórz wyszukiwanie Allegro i dodaj je za pomocą rozszerzenia.</div>`}</div></section>
     <section><div class="section-head"><h2>Ostatnio znalezione oferty</h2><span>maksymalnie 50</span></div>

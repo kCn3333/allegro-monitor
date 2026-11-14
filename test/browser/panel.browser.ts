@@ -132,7 +132,7 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   const card = page.locator(`[data-monitor-id="${monitor}"]`);
   const other = page.locator(`[data-monitor-id="${removable}"]`);
   assert.match(await page.locator(".about blockquote").innerText(), /specjalnie dla Wioli/);
-  assert.equal(await page.locator(".about figcaption").innerText(), "kCn & Codex");
+  assert.equal(await page.locator(".about figcaption").innerText(), "— Jacek");
   assert.equal(await page.locator(".about").evaluate(el => getComputedStyle(el).textAlign), "center");
   assert.ok(await page.locator(".about blockquote").evaluate(el => parseFloat(getComputedStyle(el).fontSize) <= 21));
   assert.match(await page.locator(".about").evaluate(el => getComputedStyle(el).backdropFilter), /blur\(14px\)/);
