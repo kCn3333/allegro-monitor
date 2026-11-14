@@ -41,6 +41,14 @@ Wymagane są Docker Compose i adres HTTPS prowadzący do aplikacji przez reverse
 
 [compose.yml](compose.yml) pobiera obraz `ghcr.io/kcn3333/allegro-monitor:latest`. Dane SQLite są zapisywane w trwałym wolumenie `allegro-monitor-data`. Domyślny port aplikacji to `3000`.
 
+### Ręczna aktualizacja przez Portainera
+
+Workflow [CI](.github/workflows/ci.yml) uruchamia testy i buduje aplikację, a po zmianach w `main` publikuje obraz GHCR z tagami `latest` oraz pełnym SHA commita. Aktualizację wykonuje się ręcznie w Portainerze:
+
+1. Poczekaj na pomyślne zakończenie publikacji obrazu w CI. Dla prywatnego obrazu Portainer musi mieć skonfigurowany dostęp do rejestru `ghcr.io` z uprawnieniem odczytu pakietu.
+2. W zmiennych środowiskowych stosu ustaw `IMAGE_TAG` na `latest` albo pełny SHA wybranego, opublikowanego commita. Compose użyje obrazu `ghcr.io/kcn3333/allegro-monitor:<IMAGE_TAG>`.
+3. Zaktualizuj stos z włączonym ponownym pobraniem obrazu, zachowując pozostałe zmienne, porty i wolumen danych. Po aktualizacji sprawdź stan kontenera oraz dostęp do panelu.
+
 ## Konfiguracja
 
 Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo.
