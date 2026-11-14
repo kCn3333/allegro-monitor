@@ -20,7 +20,7 @@ test("renders the personalized login panel and remember-me control", () => {
   assert.match(renderLogin(true), /Nieprawidłowa nazwa/);
 });
 
-test("branding assets load before login while panel and other paths remain private", async t => {
+test("only allowlisted branding and script assets load before login with correct MIME", async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-branding-"));
   const app = await buildApp({ startWorker: false, config: { ...config, databasePath: path.join(dir, "db.sqlite"),
     username: "test", password: "password", publicUrl: "", telegramBotToken: "" } });
@@ -33,8 +33,20 @@ test("branding assets load before login while panel and other paths remain priva
     assert.deepEqual(response.rawPayload, fs.readFileSync(`public/${file}`));
     assert.equal((await app.inject({ method: "HEAD", url })).statusCode, 200);
   }
-  for (const url of ["/", "/devices", "/assets/package.json", "/assets/logo-source.png"]) {
+  for (const file of ["theme-init.js", "panel.js", "devices.js", "extension-page.js"]) {
+    const url = `/assets/${file}`;
+    const response = await app.inject(url);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["content-type"], "text/javascript; charset=utf-8");
+    assert.equal(response.headers["x-content-type-options"], "nosniff");
+    assert.deepEqual(response.rawPayload, fs.readFileSync(`public/${file}`));
+    assert.equal((await app.inject({ method: "HEAD", url })).statusCode, 200);
+    assert.equal((await app.inject({ method: "POST", url })).headers.location, "/login");
+  }
+  for (const url of ["/", "/devices", "/extension", "/faq", "/extension/download", "/assets/package.json", "/assets/logo-source.png", "/assets/../package.json", "/assets/%2e%2e%2fpackage.json", "/assets/panel.js.map", "/assets/unknown.js"]) {
     assert.equal((await app.inject(url)).headers.location, "/login");
   }
   assert.equal((await app.inject({ method: "POST", url: "/assets/logo.png" })).headers.location, "/login");
+  const expectedCsp = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  assert.equal((await app.inject("/login")).headers["content-security-policy"], expectedCsp);
 });

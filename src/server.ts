@@ -3,7 +3,7 @@ import fs from "node:fs";
 import formbody from "@fastify/formbody";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { config } from "./config.js";
-import { brandAssets } from "./branding.js";
+import { publicAssets } from "./branding.js";
 import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
 import { renderDevices } from "./devices.js";
@@ -76,7 +76,7 @@ function parseMonitorId(value: string): number | null {
 app.addHook("onRequest", async (request, reply) => {
   reply.headers({
     "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Referrer-Policy": "no-referrer",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
@@ -84,7 +84,7 @@ app.addHook("onRequest", async (request, reply) => {
     "X-Frame-Options": "DENY"
   });
   const path = request.url.split("?", 1)[0];
-  if ((request.method === "GET" || request.method === "HEAD") && brandAssets.has(path || "")) return;
+  if ((request.method === "GET" || request.method === "HEAD") && publicAssets.has(path || "")) return;
   if (path === "/health" || path === "/api/extension/pair" || path === "/api/extension/presence" || path === "/api/extension/notifications/ack" || path?.startsWith("/api/extension/monitors")) return;
   if (path === "/login") {
     if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
@@ -102,7 +102,7 @@ app.addHook("onRequest", async (request, reply) => {
 });
 
 app.get("/health", async () => ({ status: "ok" }));
-for (const [url, asset] of brandAssets) {
+for (const [url, asset] of publicAssets) {
   app.get(url, async (_request, reply) => reply.type(asset.type).send(asset.body));
 }
 app.get("/login", async (request, reply) => {

@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --experimental-sqlite dist/src/main.js",
     "test": "node --experimental-sqlite --import tsx --test test/**/*.test.ts",
+    "test:browser": "node --experimental-sqlite --import tsx --test test/browser/*.browser.ts",
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.18.6",
+    "playwright": "1.65.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2"
   },

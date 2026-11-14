@@ -35,7 +35,7 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
       <div class="monitor-title"><span class="status-dot ${state.className}"></span><div>
         <span class="monitor-created">Dodano ${day(monitor.createdAt)}</span><div class="monitor-name"><h3>${esc(monitor.name)}</h3><details class="rename"><summary aria-label="Edytuj nazwę" title="Edytuj nazwę">${icon("edit")}</summary><form method="post" action="/monitors/${monitor.id}/rename"><input name="name" value="${esc(monitor.name)}" maxlength="100" required><button>${icon("save")}Zapisz</button></form></details></div><p class="search-query">${esc(queryLabel(monitor.url))}</p>
       </div></div>
-      <div class="monitor-status"><span class="last-attempt">Ostatnia próba: ${date(monitor.lastCheckedAt)}</span>${monitor.lastCheckNewCount > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${monitor.lastCheckNewCount}</span>` : ""}<span class="status-pill ${state.className}">${state.label}</span><form class="toggle-form" method="post" action="/monitors/${monitor.id}/toggle"><label class="switch" title="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><input type="checkbox" ${monitor.enabled ? "checked" : ""} onchange="this.form.submit()" aria-label="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><span></span></label></form></div>
+      <div class="monitor-status"><span class="last-attempt">Ostatnia próba: ${date(monitor.lastCheckedAt)}</span>${monitor.lastCheckNewCount > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${monitor.lastCheckNewCount}</span>` : ""}<span class="status-pill ${state.className}">${state.label}</span><form class="toggle-form" method="post" action="/monitors/${monitor.id}/toggle"><label class="switch" title="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><input type="checkbox" ${monitor.enabled ? "checked" : ""} aria-label="${monitor.enabled ? "Wstrzymaj monitor" : "Wznów monitor"}"><span></span></label></form></div>
     </div>
     <dl class="monitor-meta">
       <div><dt>Sprawdzanie</dt><dd>co ${monitor.intervalMinutes} min</dd></div>
@@ -48,7 +48,7 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
     ${exclusions.length ? `<details class="exclusions"><summary>Dokładne wykluczenia (${exclusions.length})</summary><div class="exclusion-items">${exclusions.map(exclusion => `<div><span>${esc(exclusion.title)}</span><form method="post" action="/monitors/${monitor.id}/exclusions/remove"><input type="hidden" name="externalId" value="${esc(exclusion.externalId)}"><button title="Przywróć tę pozycję">Przywróć</button></form></div>`).join("")}</div></details>` : ""}
     <div class="card-actions">
       <a class="button subtle" href="${esc(monitor.url)}" target="_blank" rel="noreferrer">${icon("external")}Otwórz Allegro</a>
-      <form method="post" action="/monitors/${monitor.id}/delete" onsubmit="return confirm('Usunąć monitor wraz z historią ofert?')"><button class="button danger">${icon("trash")}Usuń</button></form>
+      <form method="post" action="/monitors/${monitor.id}/delete" data-confirm="Usunąć monitor wraz z historią ofert?"><button class="button danger">${icon("trash")}Usuń</button></form>
     </div>
   </article>`;
 }
@@ -60,7 +60,7 @@ function offerCard(listing: Listing & { monitorId: number; monitorName: string; 
     <div class="offer-image">${imageUrl ? `<img src="${esc(imageUrl)}" alt="" loading="lazy">` : "<span>📖</span>"}</div>
     <div class="offer-content"><span class="eyebrow">${listing.fromLatestCheck ? `<span class="latest-label">Nowa</span> · ` : ""}${esc(listing.monitorName)} · ${date(listing.firstSeenAt)}</span>
       <a href="${esc(listing.url)}" target="_blank" rel="noreferrer">${esc(listing.title)}</a>
-      <strong>${esc(listing.price || "Cena nieznana")}</strong><form class="exclude-form" method="post" action="/monitors/${listing.monitorId}/exclusions" onsubmit="return confirm('Ta dokładna pozycja nie będzie już uwzględniana. Kontynuować?')"><input type="hidden" name="externalId" value="${esc(listing.externalId)}"><button>${exclusionLabel}</button></form></div>
+      <strong>${esc(listing.price || "Cena nieznana")}</strong><form class="exclude-form" method="post" action="/monitors/${listing.monitorId}/exclusions" data-confirm="Ta dokładna pozycja nie będzie już uwzględniana. Kontynuować?"><input type="hidden" name="externalId" value="${esc(listing.externalId)}"><button>${exclusionLabel}</button></form></div>
   </article>`;
 }
 
@@ -78,7 +78,7 @@ export function renderPage(monitors: Monitor[], listings: Array<Listing & { moni
 export function renderLogin(error = false): string {
   return `<!doctype html><html lang="pl"><head><!-- Font Awesome Free by Fonticons, Inc. | https://fontawesome.com | CC BY 4.0: https://creativecommons.org/licenses/by/4.0/ --><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light dark"><title>Logowanie · Allegro Monitor</title>${brandHead}
-  <script>try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch{}</script>
+  <script src="/assets/theme-init.js"></script>
   <style>
   :root{--bg:#f3f4f6;--surface:#fff;--surface-2:#f8f8fa;--text:#17181a;--muted:#686c73;--line:#e2e4e8;--brand:#d8612c;--brand-hover:#bd4e20;--danger:#b42318;--danger-soft:#fff0ee;--shadow:0 18px 50px rgba(20,24,32,.12);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light}
   :root[data-theme="dark"]{--bg:#101113;--surface:#191b1f;--surface-2:#22252a;--text:#f2f3f4;--muted:#a5a9b0;--line:#31343a;--brand:#df7445;--brand-hover:#e58a63;--danger:#ff8a80;--danger-soft:#38201f;--shadow:0 20px 55px rgba(0,0,0,.38);color-scheme:dark}
