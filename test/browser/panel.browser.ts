@@ -8,6 +8,7 @@ import { buildApp } from "../../src/server.js";
 import { config } from "../../src/config.js";
 import { Store } from "../../src/database.js";
 import { tokenHash } from "../../src/security.js";
+import { icon } from "../../src/icons.js";
 
 async function fixture(t: TestContext) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-panel-browser-"));
@@ -71,6 +72,189 @@ async function confirmSubmit(page: Page, selector: string, accept: boolean, mess
   await click;
   if (navigation) await navigation;
 }
+
+test("all panel button styles give hover feedback in both themes, including login and secondary actions", { timeout: 60000 }, async t => {
+  const { page, store, monitor, login, visit } = await fixture(t);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const first = { externalId: "offer:123456", title: "Rzadka książka", url: "https://allegro.pl/oferta/book-123456", price: "20 zł", imageUrl: null };
+  store.saveCheck(store.getMonitor(monitor)!, [first, { ...first, externalId: "offer:654321", title: "Inna książka" }]);
+  store.addExclusion(monitor, first.externalId);
+  const checkHover = async (control: ReturnType<Page["locator"]>) => {
+    await page.mouse.move(0, 0);
+    const before = await control.evaluate(el => {
+      const style = getComputedStyle(el);
+      return [style.backgroundColor, style.borderColor, style.color, style.boxShadow].join("|");
+    });
+    await control.hover();
+    const after = await control.evaluate(el => {
+      const style = getComputedStyle(el);
+      return [style.backgroundColor, style.borderColor, style.color, style.boxShadow].join("|");
+    });
+    assert.notEqual(after, before, `hover feedback: ${await control.evaluate(el => el.outerHTML.slice(0, 160))}`);
+  };
+  await visit("/login");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await checkHover(page.getByRole("button", { name: "Zaloguj się" }));
+  }
+  await login();
+  for (const theme of ["light", "dark"]) {
+    for (const route of ["/", "/devices", "/extension", "/faq"]) {
+      await visit(route);
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const control of await page.locator("button, a.button, .github-link, summary").all()) {
+        if (await control.isVisible() && await control.isEnabled()) await checkHover(control);
+      }
+      for (const rename of await page.locator(".rename").all()) {
+        await rename.locator("summary").click();
+        await checkHover(rename.getByRole("button", { name: "Zapisz" }));
+        await rename.locator("summary").click();
+      }
+      if (route === "/") {
+        await page.locator(".exclusions summary").click();
+        await checkHover(page.getByRole("button", { name: "Przywróć", exact: true }));
+        await page.mouse.move(0, 0);
+        const track = page.locator(".switch span").first();
+        const before = await track.evaluate(el => getComputedStyle(el).boxShadow);
+        await page.locator(".switch").first().hover();
+        assert.notEqual(await track.evaluate(el => getComputedStyle(el).boxShadow), before);
+      }
+    }
+  }
+});
+
+test("panel refresh highlights only a checked monitor for 3.5 seconds and preserves open editing", { timeout: 30000 }, async t => {
+  const { page, store, monitor, removable, login, visit } = await fixture(t);
+  await login();
+  await page.clock.install({ time: new Date("2026-11-14T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-14T12:00:01Z"));
+  await visit("/");
+  const card = page.locator(`[data-monitor-id="${monitor}"]`);
+  const other = page.locator(`[data-monitor-id="${removable}"]`);
+  assert.match(await page.locator(".about blockquote").innerText(), /specjalnie dla Wioli/);
+  assert.equal(await page.locator(".about figcaption").innerText(), "kCn & Codex");
+  const open = await card.getByRole("link", { name: "Otwórz Allegro" }).boundingBox();
+  const remove = await card.getByRole("button", { name: "Usuń" }).boundingBox();
+  assert.ok(open && remove && open.x < remove.x);
+  assert.notEqual(await card.locator(".monitor-meta").evaluate(el => getComputedStyle(el).backgroundColor), await card.evaluate(el => getComputedStyle(el).backgroundColor));
+  store.saveCheck(store.getMonitor(monitor)!, [
+    { externalId: "offer:123456", title: "Rzadka książka", url: "https://allegro.pl/oferta/book-123456", price: "20 zł", imageUrl: null },
+    { externalId: "offer:654321", title: "Nowa książka", url: "https://allegro.pl/oferta/book-654321", price: "25 zł", imageUrl: null }
+  ]);
+  const refresh = page.waitForResponse(response => new URL(response.url()).pathname === "/" && response.request().resourceType() === "fetch");
+  await page.clock.fastForward(5000);
+  await refresh;
+  await card.locator(".check-feedback:visible").waitFor();
+  assert.equal(await card.getAttribute("aria-busy"), "true");
+  assert.equal(await other.getAttribute("aria-busy"), null);
+  assert.equal(await card.getByRole("button", { name: "Usuń" }).isDisabled(), true);
+  assert.equal(await card.locator(".switch input").isDisabled(), true);
+  assert.equal(await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate(el => (el as HTMLElement).inert), true);
+  assert.equal(await page.getByRole("link", { name: "Nowa książka", exact: true }).count(), 1);
+  await page.clock.fastForward(3499);
+  assert.equal(await card.getAttribute("aria-busy"), "true");
+  await page.clock.fastForward(1);
+  assert.equal(await card.getAttribute("aria-busy"), null);
+  assert.equal(await card.getByRole("button", { name: "Usuń" }).isDisabled(), false);
+  assert.equal(await card.locator(".switch input").isDisabled(), false);
+  assert.equal(await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate(el => (el as HTMLElement).inert), false);
+  await card.locator(".rename summary").click();
+  await card.locator('input[name="name"]').fill("Niezapisana nazwa");
+  store.renameMonitor(monitor, "Nazwa na serwerze");
+  await page.clock.fastForward(10000);
+  assert.equal(await card.locator('input[name="name"]').inputValue(), "Niezapisana nazwa");
+});
+
+test("popup exposes a persistent notification snooze switch with timed expiry and manual resume", { timeout: 30000 }, async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await context.route("https://popup.example/**", route => {
+    const file = new URL(route.request().url()).pathname.slice(1) || "popup.html";
+    const types: Record<string, string> = { "popup.html": "text/html", "popup.css": "text/css", "popup.js": "text/javascript", "popup-icons.js": "text/javascript", "icon-128.png": "image/png" };
+    if (file === "backend-config.js") return route.fulfill({ contentType: "text/javascript", body: 'export const BACKEND_URL = "https://monitor.example";' });
+    if (file === "popup-icons.js") {
+      const icons = Object.fromEntries((["panel", "eye", "bell", "pair", "add", "refresh", "trash", "external", "check"] as const).map(name => [name, icon(name)]));
+      return route.fulfill({ contentType: "text/javascript", body: `export const icons = ${JSON.stringify(icons)};` });
+    }
+    if (!types[file]) return route.abort();
+    return route.fulfill({ contentType: types[file], body: fs.readFileSync(path.join("extension", file)) });
+  });
+  await context.addInitScript({ content: `
+    const data = JSON.parse(sessionStorage.getItem("popup-test-state") || JSON.stringify({ token: "existing-token", watched: [], unread: [], connection: "online", lastSyncAt: Date.now() - 60000, latestExtensionVersion: "1.1.9" }));
+    window.chrome = {
+      storage: { local: { get: async (defaults) => structuredClone({ ...defaults, ...data }) } },
+      runtime: { getManifest: () => ({ version: "1.1.9" }), sendMessage: (message, respond) => {
+        if (message.type === "snooze-notifications") {
+          data.notificationSnooze = { duration: message.duration, until: !message.enabled ? 0 : message.duration === "forever" ? null : Date.now() + (message.duration === "day" ? 86400_000 : 3600_000) };
+          sessionStorage.setItem("popup-test-state", JSON.stringify(data));
+        }
+        respond({ ok: true, result: true });
+      } }
+    };
+` });
+  await page.clock.install({ time: new Date("2026-11-14T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-14T12:00:01Z"));
+  await page.goto("https://popup.example/popup.html");
+  await page.locator('#connection[data-state="online"]').waitFor();
+  assert.equal(await page.locator("#connection-label").innerText(), "Połączono");
+  assert.match(await page.locator("#last-sync").innerText(), /Ostatnia synchronizacja:/);
+  assert.ok(await page.locator("#last-sync").getAttribute("datetime"));
+  assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "connection-pulse");
+  for (const id of ["name", "interval"]) {
+    const label = await page.locator(`label[for="${id}"] > span`).boundingBox();
+    const input = await page.locator(`#${id}`).boundingBox();
+    assert.ok(label && input && label.x < input.x && Math.abs(label.y + label.height / 2 - input.y - input.height / 2) < 1, `${id} label and field share a row`);
+  }
+  assert.equal(await page.locator(".popup-footer").innerText(), "kCn & Codex · dla Wioli 📚");
+  assert.ok(await page.locator(".popup-footer").isVisible());
+  const toggle = page.getByRole("switch", { name: "Uśpij powiadomienia" });
+  const duration = page.getByLabel("Czas uśpienia");
+  assert.equal(await toggle.isChecked(), false);
+  assert.deepEqual(await duration.locator("option").allTextContents(), ["na godzinę", "na dobę", "do odwołania"]);
+  await page.locator('label[for="snooze-enabled"]').click();
+  await page.locator("#snooze-enabled:not(:disabled)").waitFor();
+  await page.locator("#snooze-duration:disabled").waitFor();
+  assert.equal(await duration.isDisabled(), true);
+  await page.reload();
+  assert.equal(await toggle.isChecked(), true);
+  await page.clock.fastForward(3600_000);
+  assert.equal(await toggle.isChecked(), false);
+  assert.equal(await duration.isDisabled(), false);
+  await duration.selectOption("day");
+  await page.locator('label[for="snooze-enabled"]').click();
+  await page.locator("#snooze-enabled:not(:disabled)").waitFor();
+  assert.match(await page.locator("#snooze-status").innerText(), /Uśpione do/);
+  await page.locator('label[for="snooze-enabled"]').click();
+  await page.locator("#snooze-enabled:not(:disabled)").waitFor();
+  await duration.selectOption("forever");
+  await page.locator('label[for="snooze-enabled"]').click();
+  await page.locator("#snooze-enabled:not(:disabled)").waitFor();
+  await page.clock.fastForward(365 * 86400_000);
+  assert.equal(await toggle.isChecked(), true);
+  assert.match(await page.locator("#snooze-status").innerText(), /do odwołania/);
+  await page.locator('label[for="snooze-enabled"]').click();
+  await page.locator("#snooze-enabled:not(:disabled)").waitFor();
+  assert.equal(await toggle.isChecked(), false);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "none");
+  for (const connection of ["offline", "unauthorized"]) {
+    await page.evaluate(connection => {
+      const data = JSON.parse(sessionStorage.getItem("popup-test-state")!);
+      data.connection = connection;
+      sessionStorage.setItem("popup-test-state", JSON.stringify(data));
+    }, connection);
+    await page.reload();
+    await page.locator(`#connection[data-state="${connection}"]`).waitFor();
+    assert.notEqual(await page.locator("#connection-label").innerText(), "Połączono");
+    assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "none");
+    assert.ok(await page.locator("#last-sync").getAttribute("datetime"), "connection errors retain the date of the last successful sync");
+  }
+  assert.deepEqual(errors, []);
+});
 
 test("strict CSP preserves theme, login, navigation, icons and pairing", { timeout: 30000 }, async t => {
   const { page, context, visit, login, base, store } = await fixture(t);

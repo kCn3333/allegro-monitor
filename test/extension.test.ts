@@ -68,6 +68,7 @@ const popupOperations = [
   { type: "add-current", name: "Added", intervalMinutes: 15 },
   { type: "check", monitorId: 1 },
   { type: "notification-state", monitorId: 1, enabled: false },
+  { type: "snooze-notifications", enabled: true, duration: "hour" },
   { type: "clear-unread" }
 ];
 
@@ -116,6 +117,10 @@ for (const message of popupOperations) {
       assert.equal(h.state().receivedThrough, 7);
       assert.deepEqual(h.posts, []);
     }
+    if (message.type === "snooze-notifications") {
+      assert.deepEqual(h.state().notificationSnooze, { duration: "hour", until: h.now + 3600_000 });
+      assert.deepEqual(h.posts, []);
+    }
   });
 
   test(`foreign or missing popup sender cannot ${message.type} or cause side effects`, async () => {
@@ -136,6 +141,65 @@ for (const message of popupOperations) {
     }
   });
 }
+
+for (const [duration, milliseconds] of [["hour", 3600_000], ["day", 86400_000]] as const) {
+  test(`notification snooze for ${duration} survives restart, keeps checks and ACK active and expires at its deadline`, async () => {
+    let h = harness();
+    assert.equal((await h.message({ type: "snooze-notifications", enabled: true, duration })).ok, true);
+    const deadline = h.now + milliseconds;
+    assert.equal(h.state().notificationSnooze.until, deadline);
+    const snapshot = structuredClone(h.state());
+    h = harness(snapshot);
+    let eventId = 1;
+    h.request = async (path: string) => path.endsWith("/presence")
+      ? { monitors: [{ id: 1, ...watch }], notifications: [{ eventId, monitorName: "Book", title: `Offer ${eventId}` }], notificationBatch: `batch-${eventId}` }
+      : {};
+    h.now = deadline - 1;
+    assert.equal((await h.message({ type: "check", monitorId: 1 })).ok, true);
+    assert.deepEqual(h.reloads, [1]);
+    assert.ok(h.posts.some((post: any) => post.path.endsWith("/results")));
+    assert.ok(h.posts.some((post: any) => post.path.endsWith("/ack")));
+    assert.equal(h.state().unread.length, 1);
+    assert.equal(h.state().receivedThrough, 1);
+    assert.deepEqual(h.notices, []);
+    h.now = deadline;
+    eventId = 2;
+    await h.message({ type: "sync" });
+    assert.equal(h.notices.length, 1);
+    assert.equal(h.notices[0][0], "event-2");
+    assert.equal(h.state().unread.length, 2, "muted offers remain in the new-offer list");
+    await h.message({ type: "sync" });
+    assert.equal(h.notices.length, 1, "expiry does not replay earlier offers");
+  });
+}
+
+test("indefinite snooze persists until disabled and also suppresses blocked-tab notices", async () => {
+  let h = harness();
+  await h.message({ type: "snooze-notifications", enabled: true, duration: "forever" });
+  h = harness(structuredClone(h.state()));
+  h.now += 365 * 86400_000;
+  assert.equal(await h.run("browserNotificationsPaused()"), true);
+  h.read = async () => ({ blocked: true });
+  await assert.rejects(h.run(`checkOne(${JSON.stringify(watch)})`), /Captcha/);
+  assert.deepEqual(h.notices, []);
+  await h.message({ type: "snooze-notifications", enabled: false, duration: "forever" });
+  assert.equal(await h.run("browserNotificationsPaused()"), false);
+  await assert.rejects(h.run(`checkOne(${JSON.stringify(watch)})`), /Captcha/);
+  assert.equal(h.notices.length, 1);
+  assert.equal(h.state().token, "test");
+  assert.equal(h.state().watched[0].enabled, true);
+});
+
+test("invalid snooze settings are rejected without changing storage or contacting the backend", async () => {
+  for (const payload of [{ enabled: "true", duration: "hour" }, { enabled: true, duration: "week" }, { enabled: true }, { duration: "day" }]) {
+    const h = harness();
+    const before = structuredClone(h.state());
+    assert.equal((await h.message({ type: "snooze-notifications", ...payload })).ok, false);
+    assert.deepEqual(h.state(), before);
+    assert.deepEqual(h.effects, []);
+    assert.deepEqual(h.posts, []);
+  }
+});
 
 test("sender validation precedes even reading the requested operation", async () => {
   const h = harness();

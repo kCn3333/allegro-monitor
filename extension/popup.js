@@ -27,7 +27,8 @@ function showTab(name) {
 }
 
 async function render() {
-  const data = await chrome.storage.local.get({ token:"", watched:[], unread:[], latestExtensionVersion:"", connection:"paired", lastSyncAt:null });
+  const data = await chrome.storage.local.get({ token:"", watched:[], unread:[], latestExtensionVersion:"", connection:"paired", lastSyncAt:null,
+    notificationSnooze: { duration: "hour", until: 0 } });
   $("#backend").value = BACKEND_URL;
   $("#extension-version").textContent = `Wersja ${localVersion}`;
   const versionStatus = $("#version-status");
@@ -35,7 +36,28 @@ async function render() {
   else if (compareVersions(localVersion, data.latestExtensionVersion) >= 0) { versionStatus.textContent = "✓ Najnowsza wersja"; versionStatus.className = "version-status current"; }
   else { versionStatus.textContent = `Dostępna wersja ${data.latestExtensionVersion}`; versionStatus.className = "version-status outdated"; }
   $("#pairing").hidden = Boolean(data.token) && data.connection !== "unauthorized"; $("#connected").hidden = !data.token;
-  $("#connection").textContent = !data.token ? "Niesparowane" : data.connection === "unauthorized" ? "Token odrzucony — sparuj ponownie" : `${data.connection === "online" ? "Połączono" : "Sparowane · serwer niedostępny"}${data.lastSyncAt ? ` · synchronizacja: ${new Date(data.lastSyncAt).toLocaleString("pl")}` : " · brak udanej synchronizacji"}`;
+  $("#notification-settings").hidden = !data.token;
+  const snooze = data.notificationSnooze;
+  const paused = snooze.until === null || snooze.until > Date.now();
+  $("#snooze-enabled").checked = paused;
+  $("#snooze-duration").value = snooze.duration;
+  $("#snooze-duration").disabled = paused;
+  $("#snooze-status").textContent = paused
+    ? `${snooze.until === null ? "Uśpione do odwołania." : `Uśpione do ${new Date(snooze.until).toLocaleString("pl", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.`} Monitorowanie i lista nowych ofert nadal działają.`
+    : "Monitorowanie i lista nowych ofert pozostają aktywne.";
+  const connection = !data.token ? "unpaired" : data.connection === "online" ? "online" : data.connection === "unauthorized" ? "unauthorized" : "offline";
+  $("#connection").dataset.state = connection;
+  $("#connection-label").textContent = { unpaired: "Niesparowane", online: "Połączono", unauthorized: "Token odrzucony — sparuj ponownie", offline: "Serwer niedostępny" }[connection];
+  const lastSync = $("#last-sync");
+  lastSync.hidden = !data.token;
+  if (data.lastSyncAt) {
+    const date = new Date(data.lastSyncAt);
+    lastSync.dateTime = date.toISOString();
+    lastSync.textContent = `Ostatnia synchronizacja: ${date.toLocaleString("pl", { dateStyle: "short", timeStyle: "medium" })}`;
+  } else {
+    lastSync.removeAttribute("datetime");
+    lastSync.textContent = "Brak udanej synchronizacji";
+  }
   $("#watched-empty").hidden = data.watched.length > 0;
   $("#unread-empty").hidden = data.unread.length > 0;
   $("#clear").hidden = data.unread.length === 0;
@@ -54,6 +76,20 @@ $("#pair").addEventListener("click", async () => { message("Łączenie…"); con
 $("#add").addEventListener("click", async () => { message("Dodawanie…"); const response=await send({type:"add-current",name:$("#name").value,intervalMinutes:Number($("#interval").value)}); message(response.ok?"Karta jest monitorowana":response.error,response.ok?"ok":"error"); await render(); });
 $("#sync").addEventListener("click", async () => { message("Odświeżanie…"); const response=await send({type:"sync"}); message(response.ok?"Lista odświeżona":response.error,response.ok?"ok":"error"); await render(); });
 $("#clear").addEventListener("click", async () => { await send({type:"clear-unread"}); await render(); });
+async function updateSnooze() {
+  const enabled = $("#snooze-enabled").checked;
+  const duration = $("#snooze-duration").value;
+  $("#snooze-enabled").disabled = true;
+  $("#snooze-duration").disabled = true;
+  try {
+    const response = await send({ type: "snooze-notifications", enabled, duration });
+    message(response.ok ? enabled ? "Powiadomienia uśpione" : "Powiadomienia wznowione" : response.error, response.ok ? "ok" : "error");
+    await render();
+  } finally { $("#snooze-enabled").disabled = false; }
+}
+$("#snooze-enabled").addEventListener("change", updateSnooze);
+$("#snooze-duration").addEventListener("change", updateSnooze);
+setInterval(() => { void render(); }, 30000);
 document.addEventListener("click", async event => {
   const button=event.target.closest?.("button[data-open],button[data-check]");
   const open=button?.dataset.open, check=button?.dataset.check;

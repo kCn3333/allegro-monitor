@@ -29,6 +29,20 @@ async function state() {
   return current;
 }
 
+async function browserNotificationsPaused() {
+  const { notificationSnooze } = await state();
+  return notificationSnooze?.until === null || notificationSnooze?.until > Date.now();
+}
+
+async function setNotificationSnooze(enabled, duration) {
+  if (typeof enabled !== "boolean" || !["hour", "day", "forever"].includes(duration)) {
+    throw new Error("Nieprawidłowe ustawienie uśpienia powiadomień");
+  }
+  const until = !enabled ? 0 : duration === "forever" ? null : Date.now() + (duration === "day" ? 86400_000 : 3600_000);
+  await mutateState(() => ({ notificationSnooze: { duration, until } }));
+  return true;
+}
+
 async function ensureAlarm() {
   if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 1 });
   await updateActionBadge();
@@ -224,7 +238,7 @@ async function performPresence() {
     await api("/api/extension/notifications/ack", { method: "POST", body: JSON.stringify({ batchId: batch }) });
   }
   await mutateState(() => ({ connection: "online", lastSyncAt: Date.now() }));
-  if (freshNotifications.length) {
+  if (freshNotifications.length && !await browserNotificationsPaused()) {
     const first = freshNotifications[0];
     await chrome.notifications.create(`event-${first.eventId}`, {
       type: "basic", iconUrl: "icon-128.png",
@@ -359,7 +373,9 @@ async function checkOne(watch) {
   const result = await readListings(tab.id);
   if (!result) throw new Error("Nie udało się odczytać zawartości karty Allegro");
   if (result.blocked) {
-    await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` }).catch(() => {});
+    if (!await browserNotificationsPaused()) {
+      await chrome.notifications.create(`blocked-${watch.monitorId}`, { type: "basic", iconUrl: "icon-128.png", title: "Allegro wymaga uwagi", message: `Sprawdź kartę: ${watch.name}` }).catch(() => {});
+    }
     throw new Error("Captcha lub blokada w karcie Allegro");
   }
   if (!result.empty && !result.listings.length) {
@@ -449,6 +465,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "add-current") return addCurrentTab(message.name, Number(message.intervalMinutes));
     if (message.type === "check") { await reportPresence(); await checkDue(message.monitorId ?? null); return true; }
     if (message.type === "sync") { await reportPresence(); return true; }
+    if (message.type === "snooze-notifications") return setNotificationSnooze(message.enabled, message.duration);
     if (message.type === "notification-state") {
       await synchronize(() => api(`/api/extension/monitors/${message.monitorId}/notification-state`, { method: "POST", body: JSON.stringify({ enabled: message.enabled === true }) }));
       await reportPresence();

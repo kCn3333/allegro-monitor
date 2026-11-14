@@ -1,6 +1,6 @@
 import { icon } from "./icons.js";
 import { brandHead, brandLogo } from "./branding.js";
-import { renderLayout } from "./layout.js";
+import { interactionStyles, renderLayout } from "./layout.js";
 import type { Listing, Monitor, MonitorExclusion } from "./types.js";
 import { config } from "./config.js";
 import { validateImageUrl } from "./validation.js";
@@ -30,7 +30,8 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
       : monitor.initialized ? { label: "Aktywne", className: "healthy" }
         : { label: "Pierwsze sprawdzenie", className: "waiting" };
 
-  return `<article class="monitor-card">
+  return `<article class="monitor-card" data-monitor-id="${monitor.id}" data-last-check="${esc(monitor.lastCheckedAt || "")}">
+    <div class="check-feedback" role="status" hidden>${icon("refresh")}Odświeżanie wyników…</div>
     <div class="monitor-main">
       <div class="monitor-title"><span class="status-dot ${state.className}"></span><div>
         <span class="monitor-created">Dodano ${day(monitor.createdAt)}</span><div class="monitor-name"><h3>${esc(monitor.name)}</h3><details class="rename"><summary aria-label="Edytuj nazwę" title="Edytuj nazwę">${icon("edit")}</summary><form method="post" action="/monitors/${monitor.id}/rename"><input name="name" value="${esc(monitor.name)}" maxlength="100" required><button>${icon("save")}Zapisz</button></form></details></div><p class="search-query">${esc(queryLabel(monitor.url))}</p>
@@ -67,7 +68,7 @@ function offerCard(listing: Listing & { monitorId: number; monitorName: string; 
 export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>, exclusions: MonitorExclusion[]): string {
   const activeMonitors = monitors.filter(monitor => monitor.enabled && monitor.initialized && monitor.activeClientsCount > 0 && !monitor.lastError).length;
   return renderLayout("Panel", `
-    <section class="about"><span class="eyebrow">O aplikacji</span><p>Aplikacja współpracuje z rozszerzeniem Vivaldi, zapisuje znalezione oferty i wysyła powiadomienia o nowościach. Stworzyli ją wspólnie <strong>kCn</strong> i <strong>Codex</strong>.</p><p class="dedication">Powstała z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</p></section>
+    <figure class="about"><blockquote>… z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</blockquote><figcaption>kCn &amp; Codex</figcaption></figure>
     <section><div class="section-head"><h2>Obserwowane wyszukiwania</h2><span>${activeMonitors}/${monitors.length} aktywnych</span></div>
       <div class="monitor-list">${monitors.length ? monitors.map(monitor => monitorCard(monitor, exclusions.filter(exclusion => exclusion.monitorId === monitor.id))).join("") : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Otwórz wyszukiwanie Allegro i dodaj je za pomocą rozszerzenia.</div>`}</div></section>
     <section><div class="section-head"><h2>Ostatnio znalezione oferty</h2><span>maksymalnie 50</span></div>
@@ -83,7 +84,8 @@ export function renderLogin(error = false): string {
   :root{--bg:#f3f4f6;--surface:#fff;--surface-2:#f8f8fa;--text:#17181a;--muted:#686c73;--line:#e2e4e8;--brand:#d8612c;--brand-hover:#bd4e20;--danger:#b42318;--danger-soft:#fff0ee;--shadow:0 18px 50px rgba(20,24,32,.12);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light}
   :root[data-theme="dark"]{--bg:#101113;--surface:#191b1f;--surface-2:#22252a;--text:#f2f3f4;--muted:#a5a9b0;--line:#31343a;--brand:#df7445;--brand-hover:#e58a63;--danger:#ff8a80;--danger-soft:#38201f;--shadow:0 20px 55px rgba(0,0,0,.38);color-scheme:dark}
   *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 15%,color-mix(in srgb,var(--brand) 12%,transparent),transparent 36%),var(--bg);color:var(--text);font-size:15px;line-height:1.5}.shell{min-height:100vh;display:grid;place-items:center;padding:24px}.login{width:min(100%,430px);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:30px;box-shadow:var(--shadow)}.brand{display:flex;gap:12px;align-items:center;margin-bottom:28px}.logo{display:block;width:44px;height:44px;object-fit:contain;flex-shrink:0}.brand strong{display:block;font-size:17px}.brand span{color:var(--muted);font-size:12px}.icon{width:15px;height:15px;vertical-align:-2px;margin-right:8px}.welcome{margin-bottom:24px;text-align:center}.welcome h1{margin:0;font-size:27px;line-height:1.2;letter-spacing:-.02em}.welcome p{margin:6px 0 0;color:var(--muted);font-size:17px}.fields{display:grid;gap:15px}.field{display:grid;gap:6px}.field span{font-size:13px;font-weight:700}.field input{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--text);font:inherit;padding:11px 12px;outline:none}.field input:focus{border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 18%,transparent)}.remember{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:13px;cursor:pointer}.remember input{width:17px;height:17px;accent-color:var(--brand)}button{width:100%;border:0;border-radius:10px;background:var(--brand);color:#fff;font:inherit;font-weight:750;padding:11px 15px;cursor:pointer}button:hover{background:var(--brand-hover)}.error{margin:0 0 16px;padding:10px 12px;border-radius:9px;background:var(--danger-soft);color:var(--danger);font-size:13px}.note{margin:18px 0 0;color:var(--muted);font-size:12px;text-align:center}@media(max-width:480px){.login{padding:24px}.welcome h1{font-size:24px}}
+  ${interactionStyles}
   </style></head><body><main class="shell"><section class="login"><div class="brand">${brandLogo}<div><strong>Allegro Monitor</strong><span>Prywatny monitor książek</span></div></div><div class="welcome"><h1>Cześć, Wioluś 😘</h1><p>zechcesz się zalogować?</p></div>
   ${error ? '<p class="error" role="alert">Nieprawidłowa nazwa użytkownika lub hasło.</p>' : ""}
-  <form method="post" action="/login" class="fields"><label class="field"><span>Użytkownik</span><input name="username" autocomplete="username" maxlength="100" required autofocus></label><label class="field"><span>Hasło</span><input type="password" name="password" autocomplete="current-password" maxlength="500" required></label><label class="remember"><input type="checkbox" name="remember" value="yes" checked> Zapamiętaj mnie na tym urządzeniu przez 30 dni</label><button type="submit">${icon("login")}Zaloguj się</button></form><p class="note">Sesję możesz zakończyć przyciskiem „Wyloguj” w panelu.</p></section></main></body></html>`;
+  <form method="post" action="/login" class="fields"><label class="field"><span>Użytkownik</span><input name="username" autocomplete="username" maxlength="100" required autofocus></label><label class="field"><span>Hasło</span><input type="password" name="password" autocomplete="current-password" maxlength="500" required></label><label class="remember"><input type="checkbox" name="remember" value="yes" checked> Zapamiętaj mnie na tym urządzeniu przez 30 dni</label><button class="primary" type="submit">${icon("login")}Zaloguj się</button></form><p class="note">Sesję możesz zakończyć przyciskiem „Wyloguj” w panelu.</p></section></main></body></html>`;
 }
