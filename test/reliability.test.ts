@@ -9,6 +9,7 @@ import { config } from "../src/config.js";
 import { buildApp } from "../src/server.js";
 import { tokenHash } from "../src/security.js";
 import { deliverTelegram, TelegramError, TelegramWorker } from "../src/notifications.js";
+import type { Listing } from "../src/types.js";
 const listing = (id: number) => ({ externalId: `offer:${100000 + id}`, title: `Book ${id}`, url: `https://allegro.pl/oferta/book-${100000 + id}`, imageUrl: null, price: "10 zł" });
 function fixture(t: any) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-reliability-"));
@@ -115,6 +116,44 @@ test("results endpoint commits recipient jobs without contacting Telegram; no co
   assert.equal(store.claimTelegramJob()!.chatId, "1"); assert.equal(store.claimTelegramJob()!.chatId, "2");
   assert.equal(store.saveCheck(store.getMonitor(id)!, [listing(1), listing(2)]).length, 1);
   assert.equal(store.claimTelegramJob(), undefined);
+});
+
+test("without Telegram token the backend serves extension notifications and leaves existing Telegram jobs untouched", async t => {
+  const { settings, databasePath } = fixture(t);
+  const store = new Store(databasePath); t.after(() => store.close());
+  const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
+  const client = store.addExtensionClient("a", tokenHash("a"));
+  store.linkMonitorClient(id, client);
+  store.saveCheck(store.getMonitor(id)!, []);
+  store.saveCheck(store.getMonitor(id)!, [listing(1)], ["1"]);
+  const db = new DatabaseSync(databasePath); t.after(() => db.close());
+  const queued = () => db.prepare("SELECT * FROM telegram_jobs ORDER BY id").all();
+  const before = queued();
+  assert.equal(before.length, 1);
+  let sent = 0;
+  const worker = new TelegramWorker(store, "", async () => { sent++; });
+  worker.start();
+  await worker.runOnce();
+  await worker.stop();
+  assert.equal(sent, 0);
+  assert.deepEqual(queued(), before);
+  const app = await buildApp({ config: { ...settings, publicUrl: "https://monitor.example", telegramBotToken: "", telegramChatIds: ["1"] } });
+  t.after(() => app.close());
+  assert.equal((await app.inject("/health")).statusCode, 200);
+  const headers = { authorization: "Bearer a" };
+  const response = await app.inject({ method: "POST", url: `/api/extension/monitors/${id}/results`, headers,
+    payload: { listings: [listing(1), listing(2)] } });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().accepted, 2);
+  assert.deepEqual(response.json().newListings.map((item: Listing) => item.externalId), [listing(2).externalId]);
+  const presence = (await app.inject({ method: "POST", url: "/api/extension/presence", headers,
+    payload: { monitors: [{ id, open: true }], notificationProtocol: 2 } })).json();
+  assert.deepEqual(presence.notifications.map((item: Listing) => item.externalId), [listing(1).externalId, listing(2).externalId]);
+  const ack = await app.inject({ method: "POST", url: "/api/extension/notifications/ack", headers,
+    payload: { batchId: presence.notificationBatch } });
+  assert.equal(ack.statusCode, 200);
+  assert.equal(ack.json().acknowledged, true);
+  assert.deepEqual(queued(), before);
 });
 
 test("migration from audited schema preserves monitors, exclusions, paired devices, settings and sessions", async t => {

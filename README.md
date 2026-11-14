@@ -32,7 +32,7 @@ Wymagane są Docker Compose i adres HTTPS prowadzący do aplikacji przez reverse
    cp .env.example .env
    ```
 
-2. Uzupełnij `APP_PUBLIC_URL`, `APP_USERNAME`, `APP_PASSWORD` i `APP_SESSION_SECRET`. Dostarczony plik Compose wymaga również `TELEGRAM_BOT_TOKEN`; aby otrzymywać wiadomości, ustaw odbiorców w `TELEGRAM_CHAT_IDS`.
+2. Uzupełnij `APP_PUBLIC_URL`, `APP_USERNAME`, `APP_PASSWORD` i `APP_SESSION_SECRET`. Telegram jest opcjonalny również w dostarczonym Compose. Aby otrzymywać wiadomości, ustaw `TELEGRAM_BOT_TOKEN` oraz odbiorców w `TELEGRAM_CHAT_IDS` (lub starszej zmiennej `TELEGRAM_CHAT_ID`).
 3. Uruchom aplikację:
 
    ```bash
@@ -50,7 +50,7 @@ Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają 
 | `APP_PUBLIC_URL` | Adres HTTPS serwera, np. `https://monitor.example.com`, bez ścieżki, parametrów, fragmentu i danych logowania. Wymagany w produkcji oraz do wygenerowania rozszerzenia. |
 | `APP_USERNAME`, `APP_PASSWORD` | Dane logowania do panelu. Wymagane w produkcji. |
 | `APP_SESSION_SECRET` | Sekret sesji; w produkcji co najmniej 32 losowe znaki. |
-| `TELEGRAM_BOT_TOKEN` | Token bota. Backend może działać bez niego, ale dostarczony Compose wymaga niepustej wartości. |
+| `TELEGRAM_BOT_TOKEN` | Opcjonalny token bota, także przy uruchomieniu przez Compose. Wiadomości wymagają tokenu i co najmniej jednego odbiorcy; bez tokenu backend i powiadomienia rozszerzenia działają nadal. |
 | `TELEGRAM_CHAT_IDS` | Identyfikatory odbiorców oddzielone przecinkami. Jeśli zmienna jest pusta, używana jest starsza `TELEGRAM_CHAT_ID`. |
 | `DATABASE_PATH` | Ścieżka bazy SQLite: lokalnie `./data/monitor.sqlite`; w Compose ustawiona na `/app/data/monitor.sqlite`. |
 | `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`. |
