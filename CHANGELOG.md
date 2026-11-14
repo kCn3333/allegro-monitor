@@ -4,6 +4,10 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.2.0 — 2026-11-14
+
+- Poprawki interfejsu panelu aplikacji i rozszerzenia.
+
 ## 1.1.9 — 2026-11-14
 
 - Service worker przyjmuje wiadomości tylko od własnego rozszerzenia; obcy lub brakujący identyfikator nadawcy jest odrzucany przed wykonaniem operacji. Aktualizacja zachowuje parowanie.
