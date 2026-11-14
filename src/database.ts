@@ -231,6 +231,8 @@ export class Store {
       WHERE monitor_id=? AND external_id=?`);
     const addEvent = this.db.prepare(`INSERT INTO notification_events
       (monitor_id,external_id,title,url,price,image_url,created_at) VALUES(?,?,?,?,?,?,?)`);
+    const markNewInCycle = this.db.prepare("UPDATE listings SET new_in_cycle=? WHERE monitor_id=? AND external_id=?");
+    const addTelegramJob = this.db.prepare("INSERT INTO telegram_jobs(chat_id,payload,available_at) VALUES(?,?,?)");
     const fresh: Listing[] = [];
     this.db.exec("BEGIN");
     try {
@@ -243,11 +245,9 @@ export class Store {
         markSeen.run(listing.title, listing.url, listing.price, listing.imageUrl, now, monitor.id, listing.externalId);
         if (result.changes > 0 && monitor.initialized === 1 && !excluded.has(listing.externalId)) {
           fresh.push(listing);
-          this.db.prepare("UPDATE listings SET new_in_cycle=? WHERE monitor_id=? AND external_id=?")
-            .run(cycle, monitor.id, listing.externalId);
+          markNewInCycle.run(cycle, monitor.id, listing.externalId);
           for (const chatId of new Set(telegramChatIds)) {
-            this.db.prepare("INSERT INTO telegram_jobs(chat_id,payload,available_at) VALUES(?,?,?)")
-              .run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), Date.now());
+            addTelegramJob.run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), Date.now());
           }
           addEvent.run(monitor.id, listing.externalId, listing.title, listing.url, listing.price, listing.imageUrl, now);
         }
