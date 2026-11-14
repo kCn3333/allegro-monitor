@@ -50,6 +50,7 @@ async function render() {
   const connection = !data.token ? "unpaired" : data.connection === "online" ? "online" : data.connection === "unauthorized" ? "unauthorized" : "offline";
   $("#connection").dataset.state = connection;
   $("#connection-label").textContent = { unpaired: "Niesparowane", online: "Połączono", unauthorized: "Token odrzucony — sparuj ponownie", offline: "Serwer niedostępny" }[connection];
+  $("#connection-label").classList.toggle("sr-only", connection === "online");
   const lastSync = $("#last-sync");
   lastSync.hidden = !data.token;
   if (data.lastSyncAt) {
@@ -68,7 +69,7 @@ async function render() {
   $("#watched").innerHTML = data.watched.map(item => {
     const notificationsEnabled = item.notificationsEnabled !== false;
     const tabOpen = item.tabOpen !== false;
-    return `<div class="watch"><div class="watch-head"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Brak zgodnej karty"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${icon("external")}${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || item.enabled === false ? "disabled" : ""} title="${item.enabled === false ? "Monitor wstrzymany" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">${icon("check")}Sprawdź teraz</button><label class="notify-control"><span>Powiadomienia na tym urządzeniu</span><input type="checkbox" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track"></span></label></div></div>`;
+    return `<div class="watch"><div class="watch-head"><div class="watch-heading"><strong>${esc(item.name)}</strong>${Number(item.lastCheckNewCount) > 0 ? `<span class="new-count" title="Nowe w ostatnim sprawdzeniu">+${Number(item.lastCheckNewCount)}</span>` : ""}</div><label class="notify-control watch-notify" title="${notificationsEnabled ? "Wycisz" : "Włącz"} powiadomienia"><input type="checkbox" role="switch" aria-label="Powiadomienia: ${esc(item.name)}" data-notifications="${item.monitorId}" ${notificationsEnabled ? "checked" : ""}><span class="switch-track" aria-hidden="true"></span></label></div><span class="tab-status ${tabOpen ? "open" : "closed"}">${tabOpen ? "Karta otwarta" : "Brak zgodnej karty"}</span><span> · ${Number(item.activeClientsCount) || 0} aktywnych urządzeń · co ${item.intervalMinutes} min</span><div class="actions"><button data-open="${item.monitorId}">${icon("external")}${tabOpen ? "Pokaż kartę" : "Otwórz kartę"}</button><button data-check="${item.monitorId}" ${!tabOpen || item.enabled === false ? "disabled" : ""} title="${item.enabled === false ? "Monitor wstrzymany" : !tabOpen ? "Najpierw otwórz kartę" : "Sprawdź teraz"}">${icon("check")}Sprawdź teraz</button></div></div>`;
   }).join("");
   $("#unread").innerHTML = data.unread.map(item => `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><span>${esc(item.monitorName)} · ${esc(item.price || "Cena nieznana")}</span></div>`).join("");
 }

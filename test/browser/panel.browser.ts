@@ -136,6 +136,9 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   assert.equal(await page.locator(".about").evaluate(el => getComputedStyle(el).textAlign), "center");
   assert.ok(await page.locator(".about blockquote").evaluate(el => parseFloat(getComputedStyle(el).fontSize) <= 21));
   assert.match(await page.locator(".about").evaluate(el => getComputedStyle(el).backdropFilter), /blur\(14px\)/);
+  const dedicationBox = await page.locator(".about").boundingBox();
+  const headerBox = await page.locator(".topbar").boundingBox();
+  assert.ok(dedicationBox && headerBox && dedicationBox.y - headerBox.y - headerBox.height >= 48, "extra space above the dedication");
   const heart = page.locator(".dedication-hearts > span").first();
   assert.equal(await heart.evaluate(el => getComputedStyle(el).opacity), "0");
   await page.evaluate("Math.random = () => 0.25");
@@ -206,12 +209,19 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
     return route.fulfill({ contentType: types[file], body: fs.readFileSync(path.join("extension", file)) });
   });
   await context.addInitScript({ content: `
-    const data = JSON.parse(sessionStorage.getItem("popup-test-state") || JSON.stringify({ token: "existing-token", watched: [], unread: [], connection: "online", lastSyncAt: Date.now() - 60000, latestExtensionVersion: "1.1.9" }));
+    const data = JSON.parse(sessionStorage.getItem("popup-test-state") || JSON.stringify({ token: "existing-token", watched: [
+      { monitorId: 1, name: "Pierwszy monitor", url: "https://allegro.pl/listing?string=book", tabId: 1, tabOpen: true, enabled: true, notificationsEnabled: true, intervalMinutes: 5, lastCheckNewCount: 2 },
+      { monitorId: 2, name: "Drugi monitor", url: "https://allegro.pl/listing?string=other", tabOpen: false, enabled: true, notificationsEnabled: false, intervalMinutes: 15 }
+    ], unread: [{ title: "Nowa książka", monitorName: "Pierwszy monitor", url: "https://allegro.pl/oferta/book", price: "20 zł" }], connection: "online", lastSyncAt: Date.now() - 60000, latestExtensionVersion: "1.1.9" }));
     window.chrome = {
       storage: { local: { get: async (defaults) => structuredClone({ ...defaults, ...data }) } },
       runtime: { getManifest: () => ({ version: "1.1.9" }), sendMessage: (message, respond) => {
         if (message.type === "snooze-notifications") {
           data.notificationSnooze = { duration: message.duration, until: !message.enabled ? 0 : message.duration === "forever" ? null : Date.now() + (message.duration === "day" ? 86400_000 : 3600_000) };
+          sessionStorage.setItem("popup-test-state", JSON.stringify(data));
+        }
+        if (message.type === "notification-state") {
+          data.watched.find(item => item.monitorId === message.monitorId).notificationsEnabled = message.enabled;
           sessionStorage.setItem("popup-test-state", JSON.stringify(data));
         }
         respond({ ok: true, result: true });
@@ -223,6 +233,7 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   await page.goto("https://popup.example/popup.html");
   await page.locator('#connection[data-state="online"]').waitFor();
   assert.equal(await page.locator("#connection-label").innerText(), "Połączono");
+  assert.ok(await page.locator("#connection-label").evaluate(el => el.classList.contains("sr-only")), "online status uses just the visible dot");
   assert.match(await page.locator("#last-sync").innerText(), /Ostatnia synchronizacja:/);
   assert.ok(await page.locator("#last-sync").getAttribute("datetime"));
   assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "connection-pulse");
@@ -280,6 +291,36 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   assert.equal(await toggle.isChecked(), false);
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "none");
+  await page.getByRole("button", { name: "Obserwowane", exact: true }).click();
+  assert.equal(await page.getByText("Powiadomienia na tym urządzeniu", { exact: true }).count(), 0);
+  const firstWatch = page.locator(".watch").first();
+  const firstToggle = firstWatch.getByRole("switch", { name: "Powiadomienia: Pierwszy monitor" });
+  const secondToggle = page.getByRole("switch", { name: "Powiadomienia: Drugi monitor" });
+  const watchBox = await firstWatch.boundingBox();
+  const switchBox = await firstWatch.locator(".watch-notify").boundingBox();
+  assert.ok(watchBox && switchBox && Math.abs(watchBox.x + watchBox.width - switchBox.x - switchBox.width - 11) < 1 && Math.abs(switchBox.y - watchBox.y - 11) < 1, "switch stays in the upper-right corner of its card");
+  assert.equal(await firstToggle.isChecked(), true);
+  assert.equal(await secondToggle.isChecked(), false);
+  await firstWatch.locator(".watch-notify").click();
+  await page.locator('input[data-notifications="1"]:not(:checked):not(:disabled)').waitFor();
+  assert.equal(await secondToggle.isChecked(), false, "muting one monitor preserves another monitor's setting");
+  await page.locator(".watch").nth(1).locator(".watch-notify").click();
+  await page.locator('input[data-notifications="2"]:checked:not(:disabled)').waitFor();
+  assert.equal(await firstToggle.isChecked(), false);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    for (const tab of ["home", "watched", "offers"]) {
+      await page.locator(`button[data-tab="${tab}"]`).click();
+      for (const button of await page.locator("button:visible:enabled").all()) {
+        await page.mouse.move(0, 0);
+        const before = await button.evaluate(el => { const style = getComputedStyle(el); return [style.backgroundColor, style.color, style.boxShadow].join("|"); });
+        await button.hover();
+        const after = await button.evaluate(el => { const style = getComputedStyle(el); return [style.backgroundColor, style.color, style.boxShadow].join("|"); });
+        assert.notEqual(after, before, `popup button hover: ${await button.innerText()}`);
+      }
+    }
+  }
+  await page.getByRole("button", { name: "Monitor", exact: true }).click();
   for (const connection of ["offline", "unauthorized"]) {
     await page.evaluate(connection => {
       const data = JSON.parse(sessionStorage.getItem("popup-test-state")!);
