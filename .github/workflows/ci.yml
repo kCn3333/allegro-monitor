@@ -30,7 +30,6 @@ jobs:
       IMAGE_REF: ghcr.io/kcn3333/allegro-monitor:${{ github.sha }}
       TRIVY_VERSION: 0.76.2
       TRIVY_SHA256: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
-      TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -56,6 +55,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/trivy-bin"
           tar -xzf "$archive" -C "$RUNNER_TEMP/trivy-bin" trivy
           echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+          echo "TRIVY_CACHE_DIR=$RUNNER_TEMP/trivy-cache" >> "$GITHUB_ENV"
       - name: Scan all runtime vulnerabilities
         id: scan
         run: |
