@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === "production" && (!settings.username || !settings.pa
 if (process.env.NODE_ENV === "production" && !settings.publicUrl) throw new Error("APP_PUBLIC_URL jest wymagane w środowisku produkcyjnym");
 const extensionPackage = settings.publicUrl ? await buildExtensionPackage(settings.publicUrl, settings.extensionDirectory) : null;
 
-const app = Fastify({ logger: true, bodyLimit: 256_000 });
+const app = Fastify({ logger: true, bodyLimit: 256_000, trustProxy: settings.trustProxy });
 const store = new Store(settings.databasePath, settings.listingRetentionChecks);
 const pairingCodes = new Map<string, number>();
 const worker = new TelegramWorker(store, settings.telegramBotToken);

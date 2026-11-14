@@ -56,6 +56,7 @@ Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają 
 | `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`. |
 | `APP_TIME_ZONE` | Strefa czasowa panelu. Domyślnie `Europe/Warsaw`. |
 | `HOST`, `PORT` | Adres nasłuchu i port przy uruchomieniu lokalnym. Domyślnie `0.0.0.0` i `3000`. |
+| `TRUST_PROXY` | Opcjonalna lista zaufanych adresów IP lub zakresów CIDR rozdzielonych przecinkami (IPv4/IPv6). Domyślnie pusta: `trustProxy=false`. Nie przyjmuje wartości logicznych, liczby hopów ani zakresów `/0`; błędna konfiguracja zatrzymuje start aplikacji. |
 
 Dodatkowe ustawienia Compose: `IMAGE_TAG` (domyślnie `latest`), `APP_PORT` (`3000`) oraz `BIND_ADDRESS` (`0.0.0.0`). Port aplikacji powinien być dostępny wyłącznie dla reverse proxy lub tunelu. Dla proxy działającego na tym samym hoście można ustawić `BIND_ADDRESS=127.0.0.1`.
 
@@ -96,7 +97,11 @@ Panel umożliwia przeglądanie sparowanych urządzeń, zmianę ich nazw i odwoł
 
 Sesje panelu i tokeny rozszerzeń są niezależne; serwer przechowuje ich hashe. Zmiana danych logowania lub sekretu unieważnia sesje panelu. Tokeny rozszerzeń nie wygasają automatycznie i wymagają osobnego odwołania.
 
-Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źródłowego w ciągu 15 minut serwer blokuje kolejne próby do końca tego okresu, zwracając `429` i `Retry-After`. Aplikacja nie włącza `trustProxy`, dlatego użytkownicy za wspólnym proxy współdzielą ten limit.
+Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źródłowego w ciągu 15 minut serwer blokuje kolejne próby do końca tego okresu, zwracając `429` i `Retry-After`. Parowanie dopuszcza 12 prób na adres w ciągu 15 minut; udane parowanie zeruje licznik.
+
+Bez `TRUST_PROXY` limity korzystają z adresu bezpośredniego połączenia, więc użytkownicy za wspólnym proxy współdzielą limit. Po skonfigurowaniu listy [Fastify](https://fastify.dev/docs/latest/Reference/Server/#trustproxy) ustala adres klienta z `X-Forwarded-For`, sprawdzając łańcuch od strony aplikacji do pierwszego niezaufanego adresu. Nagłówek od niezaufanego nadawcy nie zmienia adresu używanego do limitowania.
+
+Wpisz wyłącznie rzeczywiste adresy lub zakresy zaufanych proxy swojej infrastruktury, widoczne z aplikacji. Proxy musi prawidłowo przekazywać nagłówki `X-Forwarded-*`, w szczególności usuwać lub poprawnie uzupełniać `X-Forwarded-For`, aby klient nie mógł narzucić adresu. Przy wielu proxy każdy zaufany hop musi odpowiadać rzeczywistej konfiguracji sieci. Aplikacja nie zawiera domyślnej listy zaufanych proxy. Ustawienie nie dodaje zapisywania IP urządzeń.
 
 ## Powiadomienia i przechowywanie danych
 
