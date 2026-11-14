@@ -64,6 +64,10 @@ function pruneAttempts() {
   for (const [key, entry] of attempts) if (entry.resetAt <= now()) attempts.delete(key);
 }
 
+function prunePairingCodes(time: number) {
+  for (const [code, expiresAt] of pairingCodes) if (expiresAt <= time) pairingCodes.delete(code);
+}
+
 function parseMonitorId(value: string): number | null {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -164,14 +168,25 @@ app.get("/extension/download", async (_request, reply) => {
 });
 
 app.post("/api/extension/pairing-code", async (_request, reply) => {
+  const time = now();
+  prunePairingCodes(time);
+  if (pairingCodes.size >= 100) {
+    const retryAfter = Math.max(1, Math.ceil((Math.min(...pairingCodes.values()) - time) / 1000));
+    return reply.code(429).header("Retry-After", retryAfter).send("Zbyt wiele aktywnych kodów parowania");
+  }
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const raw = Array.from(crypto.randomBytes(8), byte => alphabet[byte % alphabet.length]).join("");
-  const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
-  pairingCodes.set(code, Date.now() + 10 * 60_000);
+  let code: string;
+  do {
+    const raw = Array.from(crypto.randomBytes(8), byte => alphabet[byte % alphabet.length]).join("");
+    code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  } while (pairingCodes.has(code));
+  pairingCodes.set(code, time + 10 * 60_000);
   return reply.send({ code, expiresInSeconds: 600 });
 });
 
 app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
+  const time = now();
+  prunePairingCodes(time);
   if (!allowAttempt(`pair:${request.ip}`, 12, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób parowania");
   const body = request.body;
   if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send("Nieprawidłowe dane parowania");
@@ -181,7 +196,7 @@ app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
   }
   const code = rawCode.trim().toUpperCase();
   const expires = pairingCodes.get(code);
-  if (!expires || expires < Date.now()) { pairingCodes.delete(code); return reply.code(400).send("Kod jest nieprawidłowy lub wygasł"); }
+  if (expires === undefined || expires <= time) return reply.code(400).send("Kod jest nieprawidłowy lub wygasł");
   pairingCodes.delete(code);
   attempts.delete(`pair:${request.ip}`);
   const token = crypto.randomBytes(32).toString("base64url");

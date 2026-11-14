@@ -3,6 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Store } from "../src/database.js";
 import { config } from "../src/config.js";
@@ -190,8 +191,87 @@ test("invalid pairing payloads count towards the 12-attempt limit, which expires
   assert.equal((await pair({ code })).statusCode, 429);
   assert.equal(store.listExtensionClients().length, before);
   now += 15 * 60_000;
-  assert.equal((await pair({ code })).statusCode, 200);
+  assert.equal((await pair({ code })).statusCode, 400);
+  const fresh = (await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } })).json().code;
+  assert.equal((await pair({ code: fresh })).statusCode, 200);
   assert.equal(store.listExtensionClients().length, before + 1);
   for (let i = 0; i < 12; i++) assert.equal((await pair({ code: "invalid" })).statusCode, 400);
   assert.equal((await pair({ code: "invalid" })).statusCode, 429);
+});
+
+for (const [age, status] of [[599_999, 200], [600_000, 400], [600_001, 400]] as const) {
+  test(`pairing code at age ${age}ms uses the injected clock and returns ${status}`, async t => {
+    let now = 1000;
+    const { app, store, cookie } = await fixture(t, () => now);
+    const response = await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
+    assert.equal(response.statusCode, 200);
+    const { code, expiresInSeconds } = response.json();
+    assert.match(code, /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+    assert.equal(expiresInSeconds, 600);
+    const before = store.listExtensionClients().length;
+    now += age;
+    const paired = await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } });
+    assert.equal(paired.statusCode, status);
+    assert.equal(store.listExtensionClients().length, before + (status === 200 ? 1 : 0));
+    assert.equal((await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } })).statusCode, 400);
+  });
+}
+
+test("100 active codes return Retry-After for the nearest expiry without evicting old codes; pairing frees a slot", async t => {
+  let now = 1000;
+  const { app, cookie } = await fixture(t, () => now);
+  const generate = () => app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
+  const first = (await generate()).json().code;
+  now += 1500;
+  const codes = [first];
+  for (let i = 1; i < 100; i++) {
+    const response = await generate();
+    assert.equal(response.statusCode, 200);
+    codes.push(response.json().code);
+  }
+  assert.equal(new Set(codes).size, 100);
+  const blocked = await generate();
+  assert.equal(blocked.statusCode, 429);
+  assert.equal(blocked.headers["retry-after"], "599");
+  now += 500;
+  const stillBlocked = await generate();
+  assert.equal(stillBlocked.statusCode, 429);
+  assert.equal(stillBlocked.headers["retry-after"], "598");
+  const pair = (code: string) => app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } });
+  assert.equal((await pair(first)).statusCode, 200);
+  assert.equal((await generate()).statusCode, 200);
+  assert.equal((await generate()).statusCode, 429);
+  assert.equal((await pair(codes[1])).statusCode, 200);
+  assert.equal((await pair(codes[99])).statusCode, 200);
+});
+
+test("expired codes are removed at the exact expiry boundary so the full capacity becomes available again", async t => {
+  let now = 1000;
+  const { app, cookie } = await fixture(t, () => now);
+  const generate = () => app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
+  for (let i = 0; i < 100; i++) {
+    const response = await generate();
+    assert.equal(response.statusCode, 200);
+  }
+  assert.equal((await generate()).statusCode, 429);
+  now += 600_000;
+  for (let i = 0; i < 100; i++) assert.equal((await generate()).statusCode, 200);
+  assert.equal((await generate()).statusCode, 429);
+});
+
+test("a random code collision is retried without overwriting or extending the earlier code", async t => {
+  let now = 1000;
+  const { app, cookie } = await fixture(t, () => now);
+  const original = crypto.randomBytes;
+  let generated = 0;
+  t.mock.method(crypto, "randomBytes", (size: number) => size === 8 ? Buffer.alloc(8, generated++ < 2 ? 0 : 1) : original(size));
+  const generate = () => app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
+  const first = (await generate()).json().code;
+  now += 1000;
+  const second = (await generate()).json().code;
+  assert.notEqual(first, second);
+  assert.equal(generated, 3);
+  now = 601_000;
+  assert.equal((await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code: first } })).statusCode, 400);
+  assert.equal((await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code: second } })).statusCode, 200);
 });

@@ -87,6 +87,8 @@ Panel jest dostępny pod `http://localhost:3000`. Korzystanie z rozszerzenia wym
 4. W panelu wygeneruj kod parowania i wpisz go w oknie rozszerzenia. Kod jest jednorazowy i ważny przez 10 minut.
 5. Otwórz wyszukiwanie Allegro, wybierz w rozszerzeniu „Monitoruj tę kartę” i ustaw interwał.
 
+Serwer przechowuje maksymalnie 100 aktywnych kodów parowania. Po osiągnięciu limitu generowanie zwraca `429` z `Retry-After` w sekundach do najbliższego wygaśnięcia. Kolejne kody nie unieważniają wcześniejszych; miejsce zwalnia się po zużyciu lub wygaśnięciu kodu.
+
 Backend generuje paczkę przy starcie na podstawie `APP_PUBLIC_URL`. ZIP zawiera adres serwera, uprawnienia dla jego domeny oraz wymagane zasoby, w tym lokalne ikony. Hasła, tokeny i plik `.env` nie są dołączane. Katalog `extension/` w repozytorium jest szablonem; do instalacji służy paczka pobrana z panelu.
 
 Adres serwera w rozszerzeniu jest tylko do odczytu. Po zmianie `APP_PUBLIC_URL` uruchom ponownie backend, pobierz nową paczkę, przeładuj rozszerzenie i sparuj je ponownie. Token poprzedniego serwera nie jest wysyłany pod nowy adres.
