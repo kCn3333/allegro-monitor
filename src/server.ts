@@ -3,6 +3,7 @@ import fs from "node:fs";
 import formbody from "@fastify/formbody";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { config } from "./config.js";
+import { brandAssets } from "./branding.js";
 import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
 import { renderDevices } from "./devices.js";
@@ -79,6 +80,7 @@ app.addHook("onRequest", async (request, reply) => {
     "X-Frame-Options": "DENY"
   });
   const path = request.url.split("?", 1)[0];
+  if ((request.method === "GET" || request.method === "HEAD") && brandAssets.has(path || "")) return;
   if (path === "/health" || path === "/api/extension/pair" || path === "/api/extension/presence" || path === "/api/extension/notifications/ack" || path?.startsWith("/api/extension/monitors")) return;
   if (path === "/login") {
     if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
@@ -96,6 +98,9 @@ app.addHook("onRequest", async (request, reply) => {
 });
 
 app.get("/health", async () => ({ status: "ok" }));
+for (const [url, asset] of brandAssets) {
+  app.get(url, async (_request, reply) => reply.type(asset.type).send(asset.body));
+}
 app.get("/login", async (request, reply) => {
   if (!settings.username || !settings.password) return reply.redirect("/");
   const token = sessionTokenFromCookie(request.headers.cookie);

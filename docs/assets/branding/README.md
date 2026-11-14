@@ -18,6 +18,6 @@ Zaakceptowany znak przedstawia lupę z książkami. Pomarańczowy kolor nawiązu
 
 Pozostałe pliki PNG mają przezroczyste tło. Warianty zachowują proporcje i kolory oryginału; są pomniejszone filtrem Lanczos. Nie są grafiką wektorową.
 
-Logo jest używane w głównym README. Podłączenie plików do panelu, ekranu logowania, manifestu rozszerzenia i powiadomień pozostaje osobnym krokiem. Przy zmianie zasobów rozszerzenia należy uwzględnić listę plików pakowanych przez `src/extension-package.ts`.
+Logo jest używane w głównym README, nagłówku panelu, ekranie logowania, favikonie i ikonie skrótu Apple oraz w oknie, manifeście i powiadomieniach rozszerzenia. Pliki używane przez backend znajdują się w `public/`, a ikony rozszerzenia w `extension/`. Przy zmianie logo należy odświeżyć te kopie. Listę plików dołączanych do ZIP-a określa `src/extension-package.ts`.
 
 Oryginał wygenerowano narzędziem `imagegen`. Dokładny prompt znajduje się w `logo-prompt.txt`.

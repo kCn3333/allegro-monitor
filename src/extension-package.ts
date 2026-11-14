@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const assets = ["service-worker.js", "popup.js", "popup.html", "popup.css", "icon-128.png", "icon.svg"];
+const assets = ["service-worker.js", "popup.js", "popup.html", "popup.css", "icon-16.png", "icon-32.png", "icon-48.png", "icon-128.png"];
 
 export function publicBackendUrl(value: string): URL {
   let url: URL;

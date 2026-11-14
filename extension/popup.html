@@ -6,7 +6,7 @@
     <button class="tab" data-tab="offers"><span data-icon="bell" aria-hidden="true"></span>Nowe <span id="unread-count" hidden></span></button>
   </nav>
   <div class="tab-panel active" data-panel="home">
-    <header><div><h1>Allegro Monitor</h1><p id="extension-version"></p><p id="version-status" class="version-status">Sprawdzanie wersji…</p></div><span id="connection" class="pill">Łączenie…</span></header>
+    <header><div><h1><img class="brand-logo" src="icon-128.png" width="32" height="32" alt="">Allegro Monitor</h1><p id="extension-version"></p><p id="version-status" class="version-status">Sprawdzanie wersji…</p></div><span id="connection" class="pill">Łączenie…</span></header>
     <section id="pairing" hidden><h2><span data-icon="pair" aria-hidden="true"></span>Połącz z serwerem</h2><label>Adres serwera<input id="backend" type="url" readonly></label><label>Kod parowania<input id="code" maxlength="9" placeholder="ABCD-1234"></label><button id="pair"><span data-icon="pair" aria-hidden="true"></span>Połącz</button><p class="hint">Kod wygenerujesz na stronie instalacyjnej panelu.</p></section>
     <section id="connected" hidden><h2>Dodaj bieżącą kartę</h2><label>Nazwa<input id="name" placeholder="np. Yukio Mishima"></label><label>Interwał<select id="interval"><option value="1">1 minuta</option><option value="5" selected>5 minut</option><option value="15">15 minut</option><option value="30">30 minut</option><option value="60">60 minut</option></select></label><button id="add"><span data-icon="add" aria-hidden="true"></span>Monitoruj tę kartę</button></section>
   </div>

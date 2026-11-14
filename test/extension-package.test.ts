@@ -35,7 +35,14 @@ test("downloaded archives contain only selected assets and use deployment-specif
     assert.deepEqual(manifest.host_permissions, ["https://allegro.pl/*", "https://*.allegro.pl/*", `https://${new URL(origin).hostname}/*`]);
     assert.equal(read("backend-config.js"), `export const BACKEND_URL = ${JSON.stringify(origin)};\n`);
     const entries = execFileSync("unzip", ["-Z1", archive], { encoding: "utf8" }).trim().split("\n");
-    assert.equal(entries.length, 10); assert.ok(!entries.includes(".env"));
+    assert.deepEqual(entries.sort(), ["service-worker.js", "popup.js", "popup.html", "popup.css",
+      "icon-16.png", "icon-32.png", "icon-48.png", "icon-128.png", "manifest.json", "backend-config.js",
+      "popup-icons.js", "fontawesome-license.txt"].sort());
+    for (const asset of Object.values(manifest.icons) as string[]) {
+      assert.deepEqual(execFileSync("unzip", ["-p", archive, asset]), fs.readFileSync(path.join(source, asset)));
+    }
+    for (const asset of Object.values(manifest.action.default_icon) as string[]) assert.ok(entries.includes(asset));
+    assert.match(read("popup.html"), /src="icon-128.png"/);
     for (const asset of ["popup.js", "service-worker.js"]) assert.match(read(asset), /import \{ BACKEND_URL \} from "\.\/backend-config.js"/);
     assert.match(read("popup-icons.js"), /export const icons =/);
     assert.match(read("popup-icons.js"), /aria-hidden/);

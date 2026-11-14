@@ -4,6 +4,12 @@ Numery wersji odnoszą się do rozszerzenia. Wpisy obejmują również powiązan
 zmiany backendu; zmiany bez nowej wersji rozszerzenia mają osobne wpisy.
 Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 
+## 1.1.7 — 2026-11-14
+
+- Wprowadzono logo z lupą i książkami w panelu, na ekranie logowania, w favikonie i ikonie skrótu Apple.
+- Nagłówek panelu pokazuje wersję aplikacji z `package.json` i link do repozytorium zamiast opisu pod nazwą.
+- Rozszerzenie używa nowego logo w popupie, pasku narzędzi, liście rozszerzeń i powiadomieniach. Paczka ZIP zawiera ikony 16, 32, 48 i 128 px.
+
 ## 1.1.4 — 2026-09-29
 
 - Adres backendu pochodzi z `APP_PUBLIC_URL` w `.env` lub środowisku kontenera. Serwer generuje paczkę rozszerzenia i uprawnienia domeny przy starcie.
