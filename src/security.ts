@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+const credentialComparisonKey = crypto.randomBytes(32);
+
 export interface OriginHeaders {
   "sec-fetch-site"?: string;
   origin?: string;
@@ -29,9 +31,9 @@ export function credentialFingerprint(username: string, password: string, secret
 }
 
 export function safeCredentialsEqual(actualUsername: string, actualPassword: string, username: string, password: string): boolean {
-  const actual = Buffer.from(`${actualUsername}\0${actualPassword}`);
-  const expected = Buffer.from(`${username}\0${password}`);
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  const actual = crypto.createHmac("sha256", credentialComparisonKey).update(JSON.stringify([actualUsername, actualPassword])).digest();
+  const expected = crypto.createHmac("sha256", credentialComparisonKey).update(JSON.stringify([username, password])).digest();
+  return crypto.timingSafeEqual(actual, expected);
 }
 
 export function sessionTokenFromCookie(cookieHeader: string | undefined): string | null {
