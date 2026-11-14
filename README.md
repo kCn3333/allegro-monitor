@@ -55,7 +55,7 @@ Aktualizację wykonuje się ręcznie w Portainerze:
 
 ## Konfiguracja
 
-Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo.
+Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo. Poniższa tabela opisuje zmienne aplikacji; dostarczony Compose przekazuje tylko wskazane w nim ustawienia.
 
 | Zmienna | Znaczenie i wartość domyślna |
 | --- | --- |
@@ -63,14 +63,28 @@ Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają 
 | `APP_USERNAME`, `APP_PASSWORD` | Dane logowania do panelu. Wymagane w produkcji. |
 | `APP_SESSION_SECRET` | Sekret sesji; w produkcji co najmniej 32 losowe znaki. |
 | `TELEGRAM_BOT_TOKEN` | Opcjonalny token bota, także przy uruchomieniu przez Compose. Wiadomości wymagają tokenu i co najmniej jednego odbiorcy; bez tokenu backend i powiadomienia rozszerzenia działają nadal. |
-| `TELEGRAM_CHAT_IDS` | Identyfikatory odbiorców oddzielone przecinkami. Jeśli zmienna jest pusta, używana jest starsza `TELEGRAM_CHAT_ID`. |
+| `TELEGRAM_CHAT_IDS`, `TELEGRAM_CHAT_ID` | Lista odbiorców oddzielonych przecinkami. `TELEGRAM_CHAT_IDS` ma pierwszeństwo; tylko jej brak lub pusty ciąg powoduje użycie starszej `TELEGRAM_CHAT_ID`. Elementy są przycinane, duplikaty i niepoprawne wpisy pomijane. Niepusta, lecz niepoprawna wartość nie uruchamia fallbacku. |
 | `DATABASE_PATH` | Ścieżka bazy SQLite: lokalnie `./data/monitor.sqlite`; w Compose ustawiona na `/app/data/monitor.sqlite`. |
-| `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`. |
-| `APP_TIME_ZONE` | Strefa czasowa panelu. Domyślnie `Europe/Warsaw`. |
-| `HOST`, `PORT` | Adres nasłuchu i port przy uruchomieniu lokalnym. Domyślnie `0.0.0.0` i `3000`. |
+| `EXTENSION_DIRECTORY` | Katalog szablonu rozszerzenia z manifestem, skryptami i ikonami. Domyślnie `./extension`, względem katalogu roboczego. Niepusta błędna ścieżka nie jest zastępowana domyślną i może uniemożliwić start. |
+| `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`; efektywne minimum to `2`. Wartość `1` oznacza `2`, a brak, pusta wartość, zero, liczba ujemna, ułamek lub wartość nienumeryczna oznaczają `5`. |
+| `APP_TIME_ZONE` | Strefa czasowa panelu. Brak lub pusta wartość oznaczają `Europe/Warsaw`. Nieprawidłowa niepusta strefa nie uruchamia fallbacku i może powodować błędy formatowania dat. |
+| `HOST` | Adres nasłuchu aplikacji. Brak lub pusta wartość oznaczają `0.0.0.0`. Dostarczony Compose ustawia go na stałe. |
+| `PORT` | Port nasłuchu aplikacji, domyślnie `3000`. Brak, pusta wartość, zero, liczba ujemna, ułamek lub wartość nienumeryczna oznaczają `3000`. Dostarczony Compose wyznacza go przez `APP_PORT`. |
 | `TRUST_PROXY` | Opcjonalna lista zaufanych adresów IP lub zakresów CIDR rozdzielonych przecinkami (IPv4/IPv6). Domyślnie pusta: `trustProxy=false`. Nie przyjmuje wartości logicznych, liczby hopów ani zakresów `/0`; błędna konfiguracja zatrzymuje start aplikacji. |
 
-Dodatkowe ustawienia Compose: `IMAGE_TAG` (domyślnie `latest`), `APP_PORT` (`3000`) oraz `BIND_ADDRESS` (`0.0.0.0`). Port aplikacji powinien być dostępny wyłącznie dla reverse proxy lub tunelu. Dla proxy działającego na tym samym hoście można ustawić `BIND_ADDRESS=127.0.0.1`.
+Zmienne używane wyłącznie przez Compose, nieodczytywane przez `config.ts`:
+
+| Zmienna | Działanie w dostarczonym Compose |
+| --- | --- |
+| `APP_PORT` | Domyślnie `3000`. Ustawia `PORT` w kontenerze oraz port publikowany na hoście i docelowy port kontenera. |
+| `BIND_ADDRESS` | Domyślnie `0.0.0.0`. Adres interfejsu hosta, na którym publikowany jest port; nie zmienia `HOST` aplikacji w kontenerze. |
+| `IMAGE_TAG` | Domyślnie `latest`. Wybiera tag obrazu `ghcr.io/kcn3333/allegro-monitor`, np. pełny SHA opublikowanego commita. |
+
+Brak lub pusta wartość tych trzech zmiennych wybiera wartość domyślną. Niepuste błędne wartości nie są automatycznie poprawiane; mogą spowodować błąd mapowania portów lub pobierania obrazu.
+
+Dostarczony Compose nadpisuje `HOST` na `0.0.0.0`, `PORT` na wartość `APP_PORT` i `DATABASE_PATH` na `/app/data/monitor.sqlite`. Wpisy `HOST`, `PORT` i `DATABASE_PATH` w pliku `.env` nie zmieniają tych ustawień kontenera. `EXTENSION_DIRECTORY` nie jest przekazywane — obraz korzysta z `/app/extension`. Pozostałe zmienne z tabeli aplikacji są przekazywane, a `APP_TIME_ZONE` ustawia również `TZ` kontenera. Sam plik `.env` nie jest kopiowany ani montowany do obrazu. Obraz uruchamia aplikację z `NODE_ENV=production`, więc obowiązują produkcyjne wymagania danych logowania, sekretu sesji i publicznego adresu HTTPS.
+
+Port aplikacji powinien być dostępny wyłącznie dla reverse proxy lub tunelu. Dla proxy działającego na tym samym hoście można ustawić `BIND_ADDRESS=127.0.0.1`.
 
 Odbiorca wiadomości Telegram musi rozpocząć rozmowę z botem, np. poleceniem `/start`, albo dodać bota do grupy.
 
