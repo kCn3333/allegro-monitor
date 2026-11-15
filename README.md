@@ -45,6 +45,8 @@ Wymagane są Docker Compose i adres HTTPS prowadzący do aplikacji przez reverse
 
 Workflow [CI](.github/workflows/ci.yml) uruchamia testy i buduje aplikację, a po zmianach w `main` publikuje obraz GHCR z tagami `latest` oraz pełnym SHA commita.
 
+`npm run test:coverage` uruchamia ten sam zestaw co `npm test` i mierzy pokrycie backendu (`src/**/*.ts`), także plików niezaładowanych przez testy, z mapowaniem do źródeł TypeScript. Pomiar nie obejmuje rozszerzenia ani skryptów przeglądarkowych. Podsumowanie jest wyświetlane w konsoli, a raporty HTML (`coverage/index.html`) i LCOV (`coverage/lcov.info`) są dostępne lokalnie oraz w artefakcie CI `backend-coverage-<SHA>`, również po niepowodzeniu testów, jeśli zostały wygenerowane. Nie obowiązuje próg pokrycia. CI wykonuje zestaw tylko raz, w wariancie z pokryciem; testy przeglądarkowe pozostają osobną kontrolą.
+
 Przed publikacją Trivy skanuje pakiety systemowe i zależności aplikacji w końcowym obrazie runtime. Podatności HIGH/CRITICAL z dostępną poprawką oraz błędy skanera lub pobierania bazy blokują publikację. Pełny raport JSON, obejmujący wszystkie poziomy i podatności bez poprawki, jest zapisywany jako artefakt `trivy-report-<SHA>` także po odrzuceniu obrazu. Po zatwierdzeniu publikowany jest ten sam lokalny obraz, bez ponownego budowania.
 
 Aktualizację wykonuje się ręcznie w Portainerze:

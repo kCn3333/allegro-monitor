@@ -1,0 +1,24 @@
+{
+  "all": true,
+  "src": [
+    "src"
+  ],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "test/**",
+    "node_modules/**",
+    "dist/**"
+  ],
+  "extension": [
+    ".ts"
+  ],
+  "exclude-after-remap": true,
+  "reporter": [
+    "text",
+    "html",
+    "lcovonly"
+  ],
+  "reports-dir": "coverage"
+}

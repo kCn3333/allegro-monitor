@@ -17,7 +17,16 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=low
       - run: npm run check
-      - run: npm test
+      - run: npm run test:coverage
+      - name: Upload backend coverage reports
+        if: ${{ always() && hashFiles('coverage/index.html', 'coverage/lcov.info') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-coverage-${{ github.sha }}
+          path: |
+            coverage/
+            !coverage/tmp/**
+          if-no-files-found: error
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npm run build
