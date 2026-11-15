@@ -13,6 +13,8 @@ const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
 export class Store {
   private readonly db: DatabaseSync;
   private readonly listingRetentionChecks: number;
+  private nextSessionCleanupAt?: number;
+  private nextTelegramCleanupAt?: number;
 
   constructor(databasePath: string, listingRetentionChecks = 5, private readonly now: () => number = Date.now) {
     this.listingRetentionChecks = Math.max(2, listingRetentionChecks);
@@ -345,8 +347,12 @@ export class Store {
   }
 
   touchWebSession(tokenHash: string, credentialFingerprint: string): number | null {
-    const now = new Date(this.now());
-    this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
+    const time = this.now();
+    const now = new Date(time);
+    if (this.nextSessionCleanupAt === undefined || time >= this.nextSessionCleanupAt) {
+      this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
+      this.nextSessionCleanupAt = time + 5 * 60_000;
+    }
     const session = this.db.prepare(`SELECT id,duration_seconds durationSeconds FROM web_sessions
       WHERE token_hash=? AND credential_fingerprint=? AND expires_at>?`)
       .get(tokenHash, credentialFingerprint, now.toISOString()) as { id: number; durationSeconds: number } | undefined;
@@ -440,7 +446,10 @@ export class Store {
   }
 
   claimTelegramJob(now = this.now()): TelegramJob | undefined {
-    this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
+    if (this.nextTelegramCleanupAt === undefined || now >= this.nextTelegramCleanupAt) {
+      this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
+      this.nextTelegramCleanupAt = now + 5 * 60_000;
+    }
     // Lease also recovers work interrupted by process termination. One bounded worker per process.
     const row = this.db.prepare(`UPDATE telegram_jobs SET status='sending',attempts=attempts+1,available_at=?
       WHERE id=(SELECT id FROM telegram_jobs WHERE status IN ('pending','sending') AND available_at<=? ORDER BY id LIMIT 1)

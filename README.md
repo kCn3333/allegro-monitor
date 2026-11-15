@@ -125,6 +125,8 @@ Adres serwera w rozszerzeniu jest tylko do odczytu. Po zmianie `APP_PUBLIC_URL` 
 
 Panel umożliwia przeglądanie sparowanych urządzeń, zmianę ich nazw i odwoływanie dostępu. Odłączenie urządzenia natychmiast unieważnia jego token, zachowując wspólne monitory i historię. Odłączenie wszystkich urządzeń unieważnia również oczekujące kody parowania.
 
+Wygasła sesja jest odrzucana natychmiast, niezależnie od terminu fizycznego usunięcia rekordu. Sprzątanie wygasłych sesji i zakończonych zadań Telegrama starszych niż 30 dni odbywa się osobno: przy pierwszym sprawdzeniu sesji lub pobraniu zadania po uruchomieniu backendu, a następnie przy kolejnym takim wywołaniu po upływie co najmniej 5 minut.
+
 Sesje panelu i tokeny rozszerzeń są niezależne; serwer przechowuje ich hashe. Zmiana danych logowania lub sekretu unieważnia sesje panelu. Tokeny rozszerzeń nie wygasają automatycznie i wymagają osobnego odwołania.
 
 Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źródłowego w ciągu 15 minut serwer blokuje kolejne próby do końca tego okresu, zwracając `429` i `Retry-After`. Parowanie dopuszcza 12 prób na adres w ciągu 15 minut; udane parowanie zeruje licznik.
