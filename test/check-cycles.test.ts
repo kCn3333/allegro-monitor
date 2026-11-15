@@ -6,11 +6,11 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { Store } from "../src/database.js";
 
+const now = () => 1800000000000;
 const listing = (id: string) => ({ externalId: id, title: id, url: `https://allegro.pl/oferta/${id}`, price: "10 zł", imageUrl: null });
 function fixture(t: any) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-cycles-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  t.mock.timers.enable({ apis: ["Date"], now: 1800000000000 });
   return path.join(dir, "test.sqlite");
 }
 function labels(store: Store) {
@@ -18,7 +18,7 @@ function labels(store: Store) {
 }
 
 test("identical timestamps across baseline, multiple cycles and restart label only genuinely new offers", t => {
-  const file = fixture(t); let store = new Store(file); t.after(() => store.close());
+  const file = fixture(t); let store = new Store(file, undefined, now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   const client = store.addExtensionClient("test", "test-hash");
   const check = (ids: string[]) => store.saveCheck(store.getMonitor(id)!, ids.map(listing), ["1"]);
@@ -26,7 +26,7 @@ test("identical timestamps across baseline, multiple cycles and restart label on
   assert.equal(store.notificationBatch(client).events.length, 0); assert.equal(store.claimTelegramJob(), undefined);
   assert.deepEqual(check(["A", "B"]).map(item => item.externalId), ["B"]);
   assert.deepEqual(labels(store), { A: 0, B: 1 });
-  store.close(); store = new Store(file);
+  store.close(); store = new Store(file, undefined, now);
   assert.deepEqual(labels(store), { A: 0, B: 1 });
   assert.deepEqual(check(["A", "B", "C"]).map(item => item.externalId), ["C"]);
   assert.deepEqual(labels(store), { A: 0, B: 0, C: 1 });
@@ -42,7 +42,7 @@ test("identical timestamps across baseline, multiple cycles and restart label on
 });
 
 test("failed transaction rolls cycle and labels back together with counters, events and jobs; retry uses next cycle", t => {
-  const file = fixture(t); const store = new Store(file); t.after(() => store.close());
+  const file = fixture(t); const store = new Store(file, undefined, now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   store.saveCheck(store.getMonitor(id)!, [listing("A")]);
   store.saveCheck(store.getMonitor(id)!, [listing("A"), listing("B")], ["1"]);
@@ -62,7 +62,7 @@ test("PR #2 migration clears only ambiguous labels and preserves all existing ro
   const file = fixture(t); const db = new DatabaseSync(file); t.after(() => db.close());
   db.exec(fs.readFileSync("test/fixtures/audited-schema.sql", "utf8"));
   db.exec(fs.readFileSync("test/fixtures/pr2-notification-schema.sql", "utf8"));
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date(now()).toISOString();
   db.prepare("INSERT INTO monitors(id,name,url,interval_minutes,enabled,initialized,last_checked_at,next_check_at,created_at,new_listings_count,last_check_new_count) VALUES(1,'kept','https://allegro.pl/listing?string=test',30,1,1,?,?,?,7,1)").run(timestamp, timestamp, timestamp);
   db.prepare("INSERT INTO listings(monitor_id,external_id,title,url,first_seen_at,last_seen_at) VALUES(1,'A','A','https://allegro.pl/oferta/A',?,?)").run(timestamp, timestamp);
   db.exec(`INSERT INTO extension_clients(id,name,token_hash,created_at) VALUES(1,'device','hash','2026-01-01');
@@ -79,7 +79,7 @@ test("PR #2 migration clears only ambiguous labels and preserves all existing ro
   });
   const before = queries.map(sql => db.prepare(sql).all());
   for (let restart = 0; restart < 2; restart++) {
-    const store = new Store(file);
+    const store = new Store(file, undefined, now);
     assert.deepEqual(queries.map(sql => db.prepare(sql).all()), before);
     assert.deepEqual(labels(store), { A: 0 });
     assert.equal(store.getMonitor(1)!.initialized, 1); assert.equal(store.getMonitor(1)!.newListingsCount, 7);

@@ -16,7 +16,8 @@ function fixture(t: any) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const databasePath = path.join(dir, "test.sqlite");
   const settings = { ...config, databasePath, username: "test", password: "password", sessionSecret: "test".repeat(10), telegramBotToken: "", telegramChatIds: [] as string[] };
-  return { dir, databasePath, settings };
+  const clock = { time: 1800000000000, now: () => clock.time };
+  return { dir, databasePath, settings, clock };
 }
 
 test("real login endpoint blocks correct password after 20 failures, expires with controlled time and ignores spoofed IP headers", async t => {
@@ -33,12 +34,12 @@ test("real login endpoint blocks correct password after 20 failures, expires wit
 });
 
 test("ACK is authenticated, client-bound, retry-safe and cannot skip future events; legacy pull advances", async t => {
-  const { settings, databasePath } = fixture(t);
-  const store = new Store(databasePath); t.after(() => store.close());
+  const { settings, databasePath, clock } = fixture(t);
+  const store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   const a = store.addExtensionClient("a", tokenHash("a")), b = store.addExtensionClient("b", tokenHash("b"));
   store.linkMonitorToAllClients(id, a); store.saveCheck(store.getMonitor(id)!, []); store.saveCheck(store.getMonitor(id)!, [listing(1)]);
-  const app = await buildApp({ config: settings, startWorker: false }); t.after(() => app.close());
+  const app = await buildApp({ config: settings, startWorker: false, now: clock.now }); t.after(() => app.close());
   const pull = async (token: string, protocol = 2) => (await app.inject({ method: "POST", url: "/api/extension/presence", headers: { authorization: `Bearer ${token}` }, payload: { monitors: [], notificationProtocol: protocol } })).json();
   const ack = (token: string, batchId: string) => app.inject({ method: "POST", url: "/api/extension/notifications/ack", headers: { authorization: `Bearer ${token}` }, payload: { batchId, throughId: 999999 } });
   const first = await pull("a"); assert.equal(first.notifications.length, 1);
@@ -56,14 +57,14 @@ test("ACK is authenticated, client-bound, retry-safe and cannot skip future even
 });
 
 test("notification batches are bounded, survive restart and honor per-client mute", t => {
-  const { databasePath } = fixture(t); let store = new Store(databasePath);
+  const { databasePath, clock } = fixture(t); let store = new Store(databasePath, undefined, clock.now);
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   const a = store.addExtensionClient("a", "a"), b = store.addExtensionClient("b", "b");
   store.setNotificationsForClient(id, b, false); store.saveCheck(store.getMonitor(id)!, []);
   store.saveCheck(store.getMonitor(id)!, Array.from({ length: 60 }, (_, i) => listing(i)));
   const batch = store.notificationBatch(a); assert.equal(batch.events.length, 50);
   assert.equal(store.notificationBatch(b).events.length, 0);
-  store.close(); store = new Store(databasePath); t.after(() => store.close());
+  store.close(); store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
   assert.deepEqual(store.notificationBatch(a), JSON.parse(JSON.stringify(batch))); store.acknowledgeNotifications(a, batch.batchId);
   assert.equal(store.notificationBatch(a).events.length, 10);
 });
@@ -90,27 +91,27 @@ test("Telegram success, photo fallback, network, timeout, rate limit and permane
 });
 
 test("outbox persists partial success, retries with backoff/retry_after and recovers leased work after restart", async t => {
-  const { databasePath } = fixture(t); let store = new Store(databasePath);
+  const { databasePath, clock } = fixture(t); let store = new Store(databasePath, undefined, clock.now);
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   store.saveCheck(store.getMonitor(id)!, []); store.saveCheck(store.getMonitor(id)!, [listing(1)], ["1", "2", "3"]);
-  let now = Date.now() + 1; const sent: string[] = [];
-  const worker = new TelegramWorker(store, "test", async (_token, chat) => { sent.push(chat); if (chat === "2") throw new TelegramError("429", false, 25000); if (chat === "3") throw new TelegramError("403", true); }, () => now);
+  const sent: string[] = [];
+  const worker = new TelegramWorker(store, "test", async (_token, chat) => { sent.push(chat); if (chat === "2") throw new TelegramError("429", false, 25000); if (chat === "3") throw new TelegramError("403", true); }, clock.now);
   await Promise.all([worker.runOnce(), worker.runOnce()]); assert.deepEqual(sent, ["1"]);
   await worker.runOnce(); await worker.runOnce(); await worker.runOnce(); assert.deepEqual(sent, ["1", "2", "3"]);
-  now += 24999; await worker.runOnce(); assert.equal(sent.length, 3);
-  now += 1;
-  const interrupted = store.claimTelegramJob(now)!; assert.equal(interrupted.chatId, "2");
-  store.close(); store = new Store(databasePath); t.after(() => store.close());
-  const restarted = new TelegramWorker(store, "test", async (_token, chat) => { sent.push(chat); }, () => now);
+  clock.time += 24999; await worker.runOnce(); assert.equal(sent.length, 3);
+  clock.time += 1;
+  const interrupted = store.claimTelegramJob(clock.now())!; assert.equal(interrupted.chatId, "2");
+  store.close(); store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
+  const restarted = new TelegramWorker(store, "test", async (_token, chat) => { sent.push(chat); }, clock.now);
   await restarted.runOnce(); assert.equal(sent.length, 3);
-  now += 60000; await restarted.runOnce(); await restarted.runOnce(); assert.deepEqual(sent, ["1", "2", "3", "2"]);
+  clock.time += 60000; await restarted.runOnce(); await restarted.runOnce(); assert.deepEqual(sent, ["1", "2", "3", "2"]);
 });
 
 test("results endpoint commits recipient jobs without contacting Telegram; no configuration still monitors", async t => {
-  const { settings, databasePath } = fixture(t); const store = new Store(databasePath); t.after(() => store.close());
+  const { settings, databasePath, clock } = fixture(t); const store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5); const client = store.addExtensionClient("a", tokenHash("a"));
   store.linkMonitorClient(id, client); store.saveCheck(store.getMonitor(id)!, []);
-  const app = await buildApp({ config: { ...settings, telegramBotToken: "test", telegramChatIds: ["1", "2"] }, startWorker: false }); t.after(() => app.close());
+  const app = await buildApp({ config: { ...settings, telegramBotToken: "test", telegramChatIds: ["1", "2"] }, now: clock.now, startWorker: false }); t.after(() => app.close());
   const response = await app.inject({ method: "POST", url: `/api/extension/monitors/${id}/results`, headers: { authorization: "Bearer a" }, payload: { listings: [listing(1)] } });
   assert.equal(response.statusCode, 200); assert.equal(response.json().newListings.length, 1);
   assert.equal(store.claimTelegramJob()!.chatId, "1"); assert.equal(store.claimTelegramJob()!.chatId, "2");
@@ -119,8 +120,8 @@ test("results endpoint commits recipient jobs without contacting Telegram; no co
 });
 
 test("without Telegram token the backend serves extension notifications and leaves existing Telegram jobs untouched", async t => {
-  const { settings, databasePath } = fixture(t);
-  const store = new Store(databasePath); t.after(() => store.close());
+  const { settings, databasePath, clock } = fixture(t);
+  const store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   const client = store.addExtensionClient("a", tokenHash("a"));
   store.linkMonitorClient(id, client);
@@ -131,13 +132,13 @@ test("without Telegram token the backend serves extension notifications and leav
   const before = queued();
   assert.equal(before.length, 1);
   let sent = 0;
-  const worker = new TelegramWorker(store, "", async () => { sent++; });
+  const worker = new TelegramWorker(store, "", async () => { sent++; }, clock.now);
   worker.start();
   await worker.runOnce();
   await worker.stop();
   assert.equal(sent, 0);
   assert.deepEqual(queued(), before);
-  const app = await buildApp({ config: { ...settings, publicUrl: "https://monitor.example", telegramBotToken: "", telegramChatIds: ["1"] } });
+  const app = await buildApp({ config: { ...settings, publicUrl: "https://monitor.example", telegramBotToken: "", telegramChatIds: ["1"] }, now: clock.now });
   t.after(() => app.close());
   assert.equal((await app.inject("/health")).statusCode, 200);
   const headers = { authorization: "Bearer a" };
@@ -157,7 +158,7 @@ test("without Telegram token the backend serves extension notifications and leav
 });
 
 test("migration from audited schema preserves monitors, exclusions, paired devices, settings and sessions", async t => {
-  const { databasePath } = fixture(t);
+  const { databasePath, clock } = fixture(t);
   const baseline = new DatabaseSync(databasePath);
   baseline.exec(fs.readFileSync("test/fixtures/audited-schema.sql", "utf8")); baseline.close();
   // Seed the old schema before running the migration.
@@ -166,11 +167,11 @@ test("migration from audited schema preserves monitors, exclusions, paired devic
     INSERT INTO extension_clients(id,name,token_hash,created_at) VALUES(1,'device','hash','2026-01-01');
     INSERT INTO monitor_clients(monitor_id,client_id,notifications_enabled,last_seen_at) VALUES(1,1,0,'2026-01-01');
     INSERT INTO monitor_exclusions(monitor_id,external_id,title,created_at) VALUES(1,'offer:100001','Book 1','2026-01-01');`);
-  seed.prepare("INSERT INTO web_sessions(token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES('session','fingerprint',3600,?,'2026-01-01','2026-01-01')").run(new Date(Date.now()+3600000).toISOString());
+  seed.prepare("INSERT INTO web_sessions(token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES('session','fingerprint',3600,?,'2026-01-01','2026-01-01')").run(new Date(clock.now()+3600000).toISOString());
   seed.close();
   const id = 1, client = 1;
   for (let restart = 0; restart < 2; restart++) {
-    const store = new Store(databasePath);
+    const store = new Store(databasePath, undefined, clock.now);
     assert.equal(store.getMonitor(id)!.name, "kept"); assert.equal(store.getMonitor(id)!.enabled, 0); assert.equal(store.getMonitor(id)!.intervalMinutes, 15);
     assert.equal(store.touchExtensionClient("hash"), client); assert.equal(store.areNotificationsEnabledForClient(id, client), false);
     assert.equal(store.listExclusions().length, 1); assert.equal(store.touchWebSession("session", "fingerprint"), 3600); store.close();
@@ -179,7 +180,7 @@ test("migration from audited schema preserves monitors, exclusions, paired devic
 });
 
 test("outbox insertion failure rolls back listings and events; completion retention and retry ceiling are bounded", t => {
-  const { databasePath } = fixture(t); const store = new Store(databasePath); t.after(() => store.close());
+  const { databasePath, clock } = fixture(t); const store = new Store(databasePath, undefined, clock.now); t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   store.saveCheck(store.getMonitor(id)!, []);
   const db = new DatabaseSync(databasePath); t.after(() => db.close());
@@ -190,7 +191,7 @@ test("outbox insertion failure rolls back listings and events; completion retent
   assert.equal(store.getMonitor(id)!.newListingsCount, 0);
   db.exec("DROP TRIGGER reject_job"); store.saveCheck(store.getMonitor(id)!, [listing(1)], ["1"]);
   db.exec("UPDATE telegram_jobs SET attempts=11");
-  const now = Date.now() + 1; const job = store.claimTelegramJob(now)!;
+  const now = clock.now(); const job = store.claimTelegramJob(now)!;
   store.finishTelegramJob(job, { permanent: false, retryAfterMs: 0, message: "network" }, now);
   assert.equal((db.prepare("SELECT status FROM telegram_jobs").get() as { status: string }).status, "failed");
   assert.equal(store.claimTelegramJob(now + 31 * 86400_000), undefined);

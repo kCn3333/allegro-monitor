@@ -27,9 +27,9 @@ if (process.env.NODE_ENV === "production" && !settings.publicUrl) throw new Erro
 const extensionPackage = settings.publicUrl ? await buildExtensionPackage(settings.publicUrl, settings.extensionDirectory) : null;
 
 const app = Fastify({ logger: true, bodyLimit: 256_000, trustProxy: settings.trustProxy });
-const store = new Store(settings.databasePath, settings.listingRetentionChecks);
+const store = new Store(settings.databasePath, settings.listingRetentionChecks, now);
 const pairingCodes = new Map<string, number>();
-const worker = new TelegramWorker(store, settings.telegramBotToken);
+const worker = new TelegramWorker(store, settings.telegramBotToken, undefined, now);
 if (options.startWorker !== false) worker.start();
 app.addHook("onClose", async () => { await worker.stop(); store.close(); });
 const attempts = new Map<string, { count: number; resetAt: number }>();

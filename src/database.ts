@@ -14,7 +14,7 @@ export class Store {
   private readonly db: DatabaseSync;
   private readonly listingRetentionChecks: number;
 
-  constructor(databasePath: string, listingRetentionChecks = 5) {
+  constructor(databasePath: string, listingRetentionChecks = 5, private readonly now: () => number = Date.now) {
     this.listingRetentionChecks = Math.max(2, listingRetentionChecks);
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
@@ -181,14 +181,14 @@ export class Store {
   }
 
   listMonitors(): Monitor[] {
-    const activeSince = new Date(Date.now() - 3 * 60_000).toISOString();
+    const activeSince = new Date(this.now() - 3 * 60_000).toISOString();
     return this.db.prepare(`${MONITOR_COLUMNS},
       (SELECT COUNT(*) FROM monitor_clients mc WHERE mc.monitor_id=monitors.id AND mc.tab_open=1 AND mc.last_seen_at>=?) activeClientsCount
       FROM monitors ORDER BY created_at DESC`).all(activeSince) as unknown as Monitor[];
   }
 
   createMonitor(name: string, url: string, intervalMinutes: number): number {
-    const now = new Date().toISOString();
+    const now = new Date(this.now()).toISOString();
     const result = this.db.prepare("INSERT INTO monitors(name,url,interval_minutes,next_check_at,created_at) VALUES(?,?,?,?,?)")
       .run(name, url, intervalMinutes, now, now);
     return Number(result.lastInsertRowid);
@@ -223,7 +223,7 @@ export class Store {
   }
 
   saveCheck(monitor: Monitor, listings: Listing[], telegramChatIds: string[] = []): Listing[] {
-    const now = new Date().toISOString();
+    const now = new Date(this.now()).toISOString();
     const excluded = new Set((this.db.prepare("SELECT external_id externalId FROM monitor_exclusions WHERE monitor_id=?").all(monitor.id) as Array<{ externalId: string }>).map(item => item.externalId));
     const insert = this.db.prepare(`INSERT OR IGNORE INTO listings
       (monitor_id,external_id,title,url,price,image_url,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?)`);
@@ -247,7 +247,7 @@ export class Store {
           fresh.push(listing);
           markNewInCycle.run(cycle, monitor.id, listing.externalId);
           for (const chatId of new Set(telegramChatIds)) {
-            addTelegramJob.run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), Date.now());
+            addTelegramJob.run(chatId, JSON.stringify({ monitorName: monitor.name, listing }), this.now());
           }
           addEvent.run(monitor.id, listing.externalId, listing.title, listing.url, listing.price, listing.imageUrl, now);
         }
@@ -269,7 +269,7 @@ export class Store {
     this.db.exec("BEGIN");
     try {
       this.db.prepare("INSERT OR IGNORE INTO monitor_exclusions(monitor_id,external_id,title,created_at) VALUES(?,?,?,?)")
-        .run(monitorId, externalId, listing.title, new Date().toISOString());
+        .run(monitorId, externalId, listing.title, new Date(this.now()).toISOString());
       this.db.exec("COMMIT");
       return true;
     } catch (error) {
@@ -288,7 +288,7 @@ export class Store {
   }
 
   saveError(monitor: Monitor, error: unknown): void {
-    const now = new Date();
+    const now = new Date(this.now());
     const message = error instanceof Error ? error.message : String(error);
     this.db.prepare("UPDATE monitors SET last_checked_at=?,last_error=?,last_check_new_count=0 WHERE id=?")
       .run(now.toISOString(), message.slice(0, 1000), monitor.id);
@@ -297,7 +297,7 @@ export class Store {
   addExtensionClient(name: string, tokenHash: string): number {
     const result = this.db.prepare(`INSERT INTO extension_clients(name,token_hash,last_notification_event_id,created_at)
       VALUES(?,?,(SELECT COALESCE(MAX(id),0) FROM notification_events),?)`)
-      .run(name.slice(0, 100), tokenHash, new Date().toISOString());
+      .run(name.slice(0, 100), tokenHash, new Date(this.now()).toISOString());
     return Number(result.lastInsertRowid);
   }
 
@@ -317,7 +317,7 @@ export class Store {
   touchExtensionClient(tokenHash: string): number | null {
     const client = this.db.prepare("SELECT id FROM extension_clients WHERE token_hash=?").get(tokenHash) as { id: number } | undefined;
     if (!client) return null;
-    this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), client.id);
+    this.db.prepare("UPDATE extension_clients SET last_seen_at=? WHERE id=?").run(new Date(this.now()).toISOString(), client.id);
     return client.id;
   }
 
@@ -326,7 +326,7 @@ export class Store {
       .run(info.extensionVersion, info.browser, info.os, info.osVersion, info.arch, id);
   }
 
-  listExtensionClients(at = Date.now()): ExtensionClient[] {
+  listExtensionClients(at = this.now()): ExtensionClient[] {
     const since = new Date(at - 3 * 60_000).toISOString();
     return this.db.prepare(`SELECT id,name,extension_version extensionVersion,browser,os,os_version osVersion,arch,
       created_at createdAt,last_seen_at lastSeenAt,
@@ -337,7 +337,7 @@ export class Store {
   }
 
   createWebSession(tokenHash: string, credentialFingerprint: string, durationSeconds: number): void {
-    const now = new Date();
+    const now = new Date(this.now());
     this.db.prepare(`INSERT INTO web_sessions
       (token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES(?,?,?,?,?,?)`)
       .run(tokenHash, credentialFingerprint, durationSeconds,
@@ -345,7 +345,7 @@ export class Store {
   }
 
   touchWebSession(tokenHash: string, credentialFingerprint: string): number | null {
-    const now = new Date();
+    const now = new Date(this.now());
     this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
     const session = this.db.prepare(`SELECT id,duration_seconds durationSeconds FROM web_sessions
       WHERE token_hash=? AND credential_fingerprint=? AND expires_at>?`)
@@ -363,18 +363,18 @@ export class Store {
   linkMonitorClient(monitorId: number, clientId: number, tabOpen = true): void {
     this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at) VALUES(?,?,?,?)
       ON CONFLICT(monitor_id,client_id) DO UPDATE SET tab_open=excluded.tab_open,last_seen_at=excluded.last_seen_at`)
-      .run(monitorId, clientId, tabOpen ? 1 : 0, new Date().toISOString());
+      .run(monitorId, clientId, tabOpen ? 1 : 0, new Date(this.now()).toISOString());
     if (tabOpen) this.db.prepare("UPDATE monitors SET last_error=NULL WHERE id=? AND last_error LIKE 'Karta % jest zamknięta'").run(monitorId);
   }
 
   linkClientToAllMonitors(clientId: number): void {
-    const now = new Date().toISOString();
+    const now = new Date(this.now()).toISOString();
     this.db.prepare(`INSERT OR IGNORE INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at)
       SELECT id,?,0,? FROM monitors`).run(clientId, now);
   }
 
   linkMonitorToAllClients(monitorId: number, openClientId: number): void {
-    const now = new Date().toISOString();
+    const now = new Date(this.now()).toISOString();
     this.db.prepare(`INSERT OR IGNORE INTO monitor_clients(monitor_id,client_id,tab_open,last_seen_at)
       SELECT ?,id,CASE WHEN id=? THEN 1 ELSE 0 END,? FROM extension_clients`).run(monitorId, openClientId, now);
   }
@@ -392,7 +392,7 @@ export class Store {
   setNotificationsForClient(monitorId: number, clientId: number, enabled: boolean): void {
     this.db.prepare(`INSERT INTO monitor_clients(monitor_id,client_id,tab_open,notifications_enabled,last_seen_at) VALUES(?,?,0,?,?)
       ON CONFLICT(monitor_id,client_id) DO UPDATE SET notifications_enabled=excluded.notifications_enabled,last_seen_at=excluded.last_seen_at`)
-      .run(monitorId, clientId, enabled ? 1 : 0, new Date().toISOString());
+      .run(monitorId, clientId, enabled ? 1 : 0, new Date(this.now()).toISOString());
   }
 
   notificationBatch(clientId: number): { batchId: string; events: Array<Listing & { eventId: number; monitorId: number; monitorName: string }> } {
@@ -409,7 +409,7 @@ export class Store {
     const events = rows.filter(event => this.areNotificationsEnabledForClient(event.monitorId, clientId));
     const batchId = randomUUID();
     this.db.prepare("INSERT INTO notification_batches(client_id,batch_id,through_id,events,created_at) VALUES(?,?,?,?,?)")
-      .run(clientId, batchId, rows.at(-1)?.eventId ?? client.cursor, JSON.stringify(events), new Date().toISOString());
+      .run(clientId, batchId, rows.at(-1)?.eventId ?? client.cursor, JSON.stringify(events), new Date(this.now()).toISOString());
     return { batchId, events };
   }
 
@@ -428,7 +428,7 @@ export class Store {
   }
 
   private pruneNotifications(): void {
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    const cutoff = new Date(this.now() - 30 * 24 * 60 * 60_000).toISOString();
     this.db.prepare("DELETE FROM notification_events WHERE created_at<?").run(cutoff);
     this.db.prepare("DELETE FROM notification_batches WHERE created_at<?").run(cutoff);
   }
@@ -439,7 +439,7 @@ export class Store {
     return batch.events;
   }
 
-  claimTelegramJob(now = Date.now()): TelegramJob | undefined {
+  claimTelegramJob(now = this.now()): TelegramJob | undefined {
     this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
     // Lease also recovers work interrupted by process termination. One bounded worker per process.
     const row = this.db.prepare(`UPDATE telegram_jobs SET status='sending',attempts=attempts+1,available_at=?
@@ -448,7 +448,7 @@ export class Store {
     return row ? { ...row, ...JSON.parse(row.payload) } : undefined;
   }
 
-  finishTelegramJob(job: TelegramJob, error?: { permanent: boolean; retryAfterMs: number; message: string }, now = Date.now()): void {
+  finishTelegramJob(job: TelegramJob, error?: { permanent: boolean; retryAfterMs: number; message: string }, now = this.now()): void {
     const terminal = !error || error.permanent || job.attempts >= 12;
     this.db.prepare("UPDATE telegram_jobs SET status=?,available_at=?,finished_at=?,last_error=? WHERE id=? AND attempts=? AND status='sending'")
       .run(!error ? "sent" : terminal ? "failed" : "pending",

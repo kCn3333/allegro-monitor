@@ -21,7 +21,8 @@ function fixture(t: any) {
 
 test("device status expires, counts only fresh enabled monitor tabs, and metadata survives restart", t => {
   const settings = fixture(t);
-  let store = new Store(settings.databasePath);
+  const now = () => 1800000000000;
+  let store = new Store(settings.databasePath, undefined, now);
   const id = store.addExtensionClient("<script>alert(1)</script>", "secret-hash");
   assert.equal(store.listExtensionClients()[0]!.active, 0);
   store.touchExtensionClient("secret-hash");
@@ -34,10 +35,10 @@ test("device status expires, counts only fresh enabled monitor tabs, and metadat
   const html = renderDevices(devices);
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /secret-hash/);
-  devices = store.listExtensionClients(Date.now() + 181_000);
+  devices = store.listExtensionClients(now() + 181_000);
   assert.equal(devices[0]!.active, 0);
   assert.equal(devices[0]!.openMonitorsCount, 0);
-  store.close(); store = new Store(settings.databasePath); t.after(() => store.close());
+  store.close(); store = new Store(settings.databasePath, undefined, now); t.after(() => store.close());
   assert.equal(store.listExtensionClients()[0]!.extensionVersion, "1.1.4");
 });
 

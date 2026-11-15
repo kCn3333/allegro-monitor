@@ -14,7 +14,7 @@ import { renderDevices } from "../src/devices.js";
 async function fixture(t: any, now?: () => number) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-devices-"));
   const settings = { ...config, databasePath: path.join(dir, "test.sqlite"), username: "owner", password: "test-password", sessionSecret: "s".repeat(32), telegramBotToken: "" };
-  const store = new Store(settings.databasePath);
+  const store = new Store(settings.databasePath, undefined, now);
   const monitor = store.createMonitor("Book", "https://allegro.pl/listing?string=book", 5);
   const first = store.addExtensionClient("First", tokenHash("first-token"));
   const second = store.addExtensionClient("Second", tokenHash("second-token"));
@@ -213,6 +213,11 @@ for (const [age, status] of [[599_999, 200], [600_000, 400], [600_001, 400]] as 
     const paired = await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } });
     assert.equal(paired.statusCode, status);
     assert.equal(store.listExtensionClients().length, before + (status === 200 ? 1 : 0));
+    if (status === 200) {
+      const client = store.listExtensionClients().find(client => client.createdAt === new Date(now).toISOString());
+      assert.ok(client, "paired device uses the same clock as its pairing code");
+      assert.equal(store.hasMonitorClient(store.listMonitors()[0]!.id, client.id), true);
+    }
     assert.equal((await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } })).statusCode, 400);
   });
 }
