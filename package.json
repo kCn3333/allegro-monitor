@@ -28,5 +28,13 @@
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "overrides": {
+    "c8": {
+      "test-exclude": {
+        "glob": "^14.0.6",
+        "minimatch": "^11.0.8"
+      }
+    }
   }
 }
