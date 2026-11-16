@@ -12,9 +12,9 @@
     "test:coverage": "c8 npm test",
     "test:browser": "node --experimental-sqlite --import tsx --test test/browser/*.browser.ts",
     "check": "tsc -p tsconfig.json --noEmit",
-    "format": "biome format --write src test",
-    "format:check": "biome format src test",
-    "lint": "biome lint src test"
+    "format": "biome format --write src test public extension",
+    "format:check": "biome format src test public extension",
+    "lint": "biome lint src test public extension"
   },
   "dependencies": {
     "@fastify/formbody": "^8.0.2",

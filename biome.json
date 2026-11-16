@@ -4,6 +4,8 @@
     "includes": [
       "src/**/*.ts",
       "test/**/*.ts",
+      "public/**/*.js",
+      "extension/**/*.js",
       "!**/node_modules/**",
       "!**/dist/**",
       "!**/coverage/**",
