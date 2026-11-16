@@ -377,7 +377,38 @@ function waitForLoad(tabId, timeoutMs = 45000, trigger = () => {}) {
   });
 }
 
-function extractListings() {
+function processListings({ operation, ids = [] }) {
+  function listingId(url) {
+    const numericId =
+      url.searchParams.get("offerId") ||
+      url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] ||
+      url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
+    const productId = url.pathname.match(
+      /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/)?$/i,
+    )?.[1];
+    return numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
+  }
+  if (operation === "mark") {
+    const wanted = new Set(ids);
+    for (const anchor of document.querySelectorAll('a[href*="/oferta/"], a[href*="/produkt/"]')) {
+      let url;
+      try {
+        url = new URL(anchor.href, location.href);
+      } catch {
+        continue;
+      }
+      const id = listingId(url);
+      if (!id || !wanted.has(id)) continue;
+      const card = anchor.closest("article") || anchor.closest("[data-box-name]") || anchor.parentElement;
+      if (card) {
+        card.style.outline = "3px solid #d8612c";
+        card.style.outlineOffset = "3px";
+      }
+    }
+    if (ids.length && !document.title.startsWith(`[+${ids.length}]`))
+      document.title = `[+${ids.length}] ${document.title}`;
+    return;
+  }
   const text = document.body?.innerText || "";
   if (
     /potwierd(?:ź|z).{0,40}(?:człowiekiem|czlowiekiem)|zostałeś zablokowany|zostales zablokowany|captcha/i.test(text)
@@ -442,14 +473,7 @@ function extractListings() {
   for (const anchor of offerAnchors) {
     const url = new URL(anchor.href, location.href);
     const href = url.href;
-    const numericId =
-      url.searchParams.get("offerId") ||
-      url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] ||
-      url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
-    const productId = url.pathname.match(
-      /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/)?$/i,
-    )?.[1];
-    const id = numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
+    const id = listingId(url);
     if (!id || found.has(id)) continue;
     const card =
       anchor.closest("article") ||
@@ -491,40 +515,16 @@ async function readListings(tabId, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   let lastResult = null;
   do {
-    const execution = await chrome.scripting.executeScript({ target: { tabId }, func: extractListings });
+    const execution = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: processListings,
+      args: [{ operation: "extract" }],
+    });
     lastResult = execution[0]?.result;
     if (lastResult?.blocked || lastResult?.empty || lastResult?.listings?.length) return lastResult;
     await new Promise((resolve) => setTimeout(resolve, 2000));
   } while (Date.now() < deadline);
   return lastResult;
-}
-
-function markNewOffers(ids) {
-  const wanted = new Set(ids);
-  for (const anchor of document.querySelectorAll('a[href*="/oferta/"], a[href*="/produkt/"]')) {
-    let url;
-    try {
-      url = new URL(anchor.href, location.href);
-    } catch {
-      continue;
-    }
-    const numericId =
-      url.searchParams.get("offerId") ||
-      url.pathname.match(/-(\d{6,})(?:\/)?$/)?.[1] ||
-      url.pathname.match(/\/(\d{6,})(?:\/)?$/)?.[1];
-    const productId = url.pathname.match(
-      /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/)?$/i,
-    )?.[1];
-    const id = numericId ? `offer:${numericId}` : productId ? `product:${productId.toLowerCase()}` : null;
-    if (!id || !wanted.has(id)) continue;
-    const card = anchor.closest("article") || anchor.closest("[data-box-name]") || anchor.parentElement;
-    if (card) {
-      card.style.outline = "3px solid #d8612c";
-      card.style.outlineOffset = "3px";
-    }
-  }
-  if (ids.length && !document.title.startsWith(`[+${ids.length}]`))
-    document.title = `[+${ids.length}] ${document.title}`;
 }
 
 async function checkOne(watch) {
@@ -651,8 +651,8 @@ async function checkDue(forceMonitorId = null) {
         await chrome.scripting
           .executeScript({
             target: { tabId: result.tabId },
-            func: markNewOffers,
-            args: [result.fresh.map((item) => item.externalId)],
+            func: processListings,
+            args: [{ operation: "mark", ids: result.fresh.map((item) => item.externalId) }],
           })
           .catch(() => {});
         await backgroundPresence();

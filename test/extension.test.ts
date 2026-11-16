@@ -95,9 +95,13 @@ function harness(initial: any = {}) {
       onCreated: { addListener: noop },
     },
     scripting: {
-      executeScript: async ({ func }: any) => {
+      executeScript: async ({ func, args = [] }: any) => {
         h.effects.push("scripting.executeScript");
-        return [{ result: await (func.name === "markNewOffers" ? h.highlight() : h.read()) }];
+        if (func.name === "processListings") {
+          assert.ok(args[0]?.operation === "extract" || args[0]?.operation === "mark");
+          return [{ result: await (args[0].operation === "mark" ? h.highlight(args[0].ids) : h.read()) }];
+        }
+        return [{ result: await h.read() }];
       },
     },
   };
