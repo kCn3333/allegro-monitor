@@ -182,11 +182,37 @@ test("migrates the previous database schema without losing data", () => {
   `);
   legacy.close();
 
-  const store = new Store(databasePath);
+  let store = new Store(databasePath);
   try {
     store.updateMonitorSettings(1, "Stary", 1);
     assert.equal(store.getMonitor(1)?.intervalMinutes, 1);
     assert.equal(store.recentListings()[0]?.externalId, "offer:123456");
+    const db = new DatabaseSync(databasePath);
+    try {
+      const rows = () => [db.prepare("SELECT * FROM monitors").all(), db.prepare("SELECT * FROM listings").all()];
+      const before = rows();
+      const item = db.prepare("SELECT * FROM listings").get()!;
+      assert.equal(item.last_seen_at, item.first_seen_at);
+      assert.equal(item.missing_checks, 0);
+      assert.equal(item.new_in_cycle, null);
+      store.close();
+      store = new Store(databasePath);
+      assert.deepEqual(rows(), before);
+      assert.deepEqual(
+        db
+          .prepare("PRAGMA integrity_check")
+          .all()
+          .map((row) => row.integrity_check),
+        ["ok"],
+      );
+      assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+      assert.equal(db.prepare("PRAGMA journal_mode").get()!.journal_mode, "wal");
+      store.deleteMonitor(1);
+      assert.equal(db.prepare("SELECT COUNT(*) n FROM listings").get()!.n, 0);
+      assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+    } finally {
+      db.close();
+    }
   } finally {
     store.close();
     fs.rmSync(directory, { recursive: true });
@@ -204,38 +230,80 @@ test("adds the latest-check counter to an existing current database", () => {
   `);
   current.close();
 
-  const store = new Store(databasePath);
+  let store = new Store(databasePath);
   try {
     assert.equal(store.getMonitor(1)?.newListingsCount, 7);
     assert.equal(store.getMonitor(1)?.lastCheckNewCount, 0);
+    const before = store.getMonitor(1);
+    store.close();
+    store = new Store(databasePath);
+    assert.deepEqual(store.getMonitor(1), before);
+    const db = new DatabaseSync(databasePath);
+    try {
+      assert.deepEqual(
+        db
+          .prepare("PRAGMA integrity_check")
+          .all()
+          .map((row) => row.integrity_check),
+        ["ok"],
+      );
+      assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+    } finally {
+      db.close();
+    }
   } finally {
     store.close();
     fs.rmSync(directory, { recursive: true });
   }
 });
 
-test("migrates per-device settings from version 0.8", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-v08-"));
-  const databasePath = path.join(directory, "v08.sqlite");
-  const previous = new DatabaseSync(databasePath);
-  previous.exec(`
+for (const hasClientEnabled of [true, false]) {
+  test(`migrates per-device settings with historical client_enabled=${hasClientEnabled}`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-v08-"));
+    const databasePath = path.join(directory, "v08.sqlite");
+    const previous = new DatabaseSync(databasePath);
+    previous.exec(`
     PRAGMA foreign_keys=ON;
     CREATE TABLE monitors (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,url TEXT NOT NULL,interval_minutes INTEGER NOT NULL DEFAULT 5 CHECK(interval_minutes >= 1),enabled INTEGER NOT NULL DEFAULT 1,initialized INTEGER NOT NULL DEFAULT 0,last_checked_at TEXT,next_check_at TEXT NOT NULL,last_error TEXT,created_at TEXT NOT NULL,new_listings_count INTEGER NOT NULL DEFAULT 0,last_check_new_count INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE listings (id INTEGER PRIMARY KEY AUTOINCREMENT,monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,external_id TEXT NOT NULL,title TEXT NOT NULL,url TEXT NOT NULL,price TEXT,image_url TEXT,first_seen_at TEXT NOT NULL,last_seen_at TEXT NOT NULL,missing_checks INTEGER NOT NULL DEFAULT 0,UNIQUE(monitor_id,external_id));
     CREATE TABLE extension_clients (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,last_seen_at TEXT,created_at TEXT NOT NULL);
-    CREATE TABLE monitor_clients (monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,client_id INTEGER NOT NULL REFERENCES extension_clients(id) ON DELETE CASCADE,tab_open INTEGER NOT NULL DEFAULT 0,client_enabled INTEGER NOT NULL DEFAULT 1,last_seen_at TEXT NOT NULL,PRIMARY KEY(monitor_id,client_id));
+    CREATE TABLE monitor_clients (monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,client_id INTEGER NOT NULL REFERENCES extension_clients(id) ON DELETE CASCADE,tab_open INTEGER NOT NULL DEFAULT 0,${hasClientEnabled ? "client_enabled INTEGER NOT NULL DEFAULT 1," : ""}last_seen_at TEXT NOT NULL,PRIMARY KEY(monitor_id,client_id));
     INSERT INTO monitors(name,url,next_check_at,created_at) VALUES('Test','https://allegro.pl/listing?string=test','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z');
     INSERT INTO extension_clients(name,token_hash,created_at) VALUES('Vivaldi','hash-v08','2026-01-01T00:00:00.000Z');
-    INSERT INTO monitor_clients(monitor_id,client_id,client_enabled,last_seen_at) VALUES(1,1,0,'2026-01-01T00:00:00.000Z');
+    INSERT INTO monitor_clients(monitor_id,client_id,${hasClientEnabled ? "client_enabled," : ""}last_seen_at) VALUES(1,1,${hasClientEnabled ? "0," : ""}'2026-01-01T00:00:00.000Z');
   `);
-  previous.close();
+    previous.close();
 
-  const store = new Store(databasePath);
-  try {
-    assert.equal(store.areNotificationsEnabledForClient(1, 1), false);
-    assert.deepEqual(store.pullNotifications(1), []);
-  } finally {
-    store.close();
-    fs.rmSync(directory, { recursive: true });
-  }
-});
+    let store = new Store(databasePath);
+    try {
+      assert.equal(store.areNotificationsEnabledForClient(1, 1), !hasClientEnabled);
+      assert.deepEqual(store.pullNotifications(1), []);
+      const db = new DatabaseSync(databasePath);
+      try {
+        const rows = () => [
+          db.prepare("SELECT * FROM extension_clients").all(),
+          db.prepare("SELECT * FROM monitor_clients").all(),
+        ];
+        const before = rows();
+        store.close();
+        store = new Store(databasePath);
+        assert.deepEqual(rows(), before);
+        assert.equal(store.areNotificationsEnabledForClient(1, 1), !hasClientEnabled);
+        assert.equal(store.touchExtensionClient("hash-v08"), 1);
+        assert.deepEqual(
+          db
+            .prepare("PRAGMA integrity_check")
+            .all()
+            .map((row) => row.integrity_check),
+          ["ok"],
+        );
+        assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+      } finally {
+        db.close();
+      }
+    } finally {
+      store.close();
+      fs.rmSync(directory, { recursive: true });
+    }
+  });
+}

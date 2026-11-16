@@ -129,6 +129,15 @@ test("PR #2 migration clears only ambiguous labels and preserves all existing ro
   for (let restart = 0; restart < 2; restart++) {
     const store = new Store(file, undefined, now);
     assert.deepEqual(
+      db
+        .prepare("PRAGMA integrity_check")
+        .all()
+        .map((row) => row.integrity_check),
+      ["ok"],
+    );
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+    assert.equal(db.prepare("PRAGMA journal_mode").get()!.journal_mode, "wal");
+    assert.deepEqual(
       queries.map((sql) => db.prepare(sql).all()),
       before,
     );
