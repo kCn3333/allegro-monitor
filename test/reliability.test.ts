@@ -255,6 +255,91 @@ test("notification batches are bounded, survive restart and honor per-client mut
   assert.equal(store.notificationBatch(a).events.length, 10);
 });
 
+test("muted events count towards the scan limit and pending batches use current notification settings", (t) => {
+  const { databasePath, clock } = fixture(t);
+  const store = new Store(databasePath, undefined, clock.now);
+  t.after(() => store.close());
+  const muted = store.createMonitor("Muted", "https://allegro.pl/listing?string=muted", 5);
+  const audible = store.createMonitor("Audible", "https://allegro.pl/listing?string=audible", 5);
+  const client = store.addExtensionClient("device", "hash");
+  store.setNotificationsForClient(muted, client, false);
+  store.saveCheck(store.getMonitor(muted)!, []);
+  store.saveCheck(store.getMonitor(audible)!, []);
+  store.saveCheck(
+    store.getMonitor(muted)!,
+    Array.from({ length: 55 }, (_, i) => listing(i)),
+  );
+  store.saveCheck(store.getMonitor(audible)!, [listing(99)]);
+  const db = new DatabaseSync(databasePath);
+  t.after(() => db.close());
+  const cursor = () =>
+    db.prepare("SELECT last_notification_event_id n FROM extension_clients WHERE id=?").get(client)!.n;
+  const first = store.notificationBatch(client);
+  assert.deepEqual(first.events, []);
+  assert.equal(db.prepare("SELECT through_id n FROM notification_batches WHERE client_id=?").get(client)!.n, 50);
+  assert.equal(cursor(), 0);
+  assert.deepEqual(store.notificationBatch(client), first);
+  assert.equal(store.acknowledgeNotifications(client, first.batchId), true);
+  assert.equal(cursor(), 50);
+  const second = store.notificationBatch(client);
+  assert.notEqual(second.batchId, first.batchId);
+  assert.deepEqual(
+    second.events.map((event) => event.externalId),
+    [listing(99).externalId],
+  );
+  store.setNotificationsForClient(audible, client, false);
+  assert.deepEqual(store.notificationBatch(client), { batchId: second.batchId, events: [] });
+  store.setNotificationsForClient(audible, client, true);
+  assert.deepEqual(store.notificationBatch(client), JSON.parse(JSON.stringify(second)));
+  assert.equal(cursor(), 50);
+  assert.equal(store.acknowledgeNotifications(client, second.batchId), true);
+  assert.equal(cursor(), 56);
+  const empty = store.notificationBatch(client);
+  assert.deepEqual(empty.events, []);
+  assert.deepEqual(store.notificationBatch(client), empty);
+  assert.equal(store.acknowledgeNotifications(client, empty.batchId), true);
+  assert.equal(cursor(), 56);
+});
+
+test("failed ACK rolls back the cursor and batch deletion; retry preserves a cursor already advanced", (t) => {
+  const { databasePath, clock } = fixture(t);
+  const store = new Store(databasePath, undefined, clock.now);
+  t.after(() => store.close());
+  const monitor = store.createMonitor("Books", "https://allegro.pl/listing?string=books", 5);
+  const client = store.addExtensionClient("device", "hash");
+  store.saveCheck(store.getMonitor(monitor)!, []);
+  store.saveCheck(store.getMonitor(monitor)!, [listing(1)]);
+  const batch = store.notificationBatch(client);
+  const db = new DatabaseSync(databasePath);
+  t.after(() => db.close());
+  const snapshot = () => [
+    db.prepare("SELECT * FROM extension_clients").all(),
+    db.prepare("SELECT * FROM notification_batches").all(),
+  ];
+  const before = snapshot();
+  db.exec(
+    "CREATE TRIGGER reject_ack BEFORE DELETE ON notification_batches BEGIN SELECT RAISE(ABORT,'ACK rollback'); END",
+  );
+  assert.throws(() => store.acknowledgeNotifications(client, batch.batchId), /ACK rollback/);
+  assert.deepEqual(snapshot(), before);
+  assert.deepEqual(store.notificationBatch(client), JSON.parse(JSON.stringify(batch)));
+  db.exec("DROP TRIGGER reject_ack");
+  store.saveCheck(store.getMonitor(monitor)!, [listing(1), listing(2)]);
+  db.prepare(
+    "UPDATE extension_clients SET last_notification_event_id=(SELECT MAX(id) FROM notification_events) WHERE id=?",
+  ).run(client);
+  const advanced = db.prepare("SELECT last_notification_event_id n FROM extension_clients WHERE id=?").get(client)!.n;
+  assert.equal(advanced, 2);
+  assert.equal(store.acknowledgeNotifications(client, batch.batchId), true);
+  assert.equal(store.acknowledgeNotifications(client, batch.batchId), false);
+  assert.equal(
+    db.prepare("SELECT last_notification_event_id n FROM extension_clients WHERE id=?").get(client)!.n,
+    advanced,
+  );
+  assert.deepEqual(db.prepare("SELECT * FROM notification_batches").all(), []);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
 test("Telegram success, photo fallback, network, timeout, rate limit and permanent failures", async () => {
   for (const status of [200, 400, 401, 403, 429, 500]) {
     let calls = 0;
