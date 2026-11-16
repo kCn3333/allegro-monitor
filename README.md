@@ -21,18 +21,15 @@ Allegro Monitor śledzi nowe oferty w zapisanych wyszukiwaniach Allegro. Rozszer
 
 ## Uruchomienie
 
-Potrzebujesz Docker Compose lub Portainera oraz adresu HTTPS prowadzącego do aplikacji przez reverse proxy lub tunel.
-
-1. Pobierz [compose.yml](compose.yml) i [.env.example](.env.example) do jednego katalogu. Skopiuj `.env.example` jako `.env` i uzupełnij wymagane ustawienia poniżej. W Portainerze użyj pliku Compose i ustaw zmienne stosu.
-2. Jeśli obraz GHCR jest prywatny, skonfiguruj dostęp do `ghcr.io` z uprawnieniem odczytu pakietu.
-3. Uruchom stos w Portainerze albo wykonaj:
+1. Pobierz [compose.yml](compose.yml) i [.env.example](.env.example) do jednego katalogu. Skopiuj `.env.example` jako `.env` i uzupełnij wymagane ustawienia poniżej.
+2. Uruchom :
 
    ```sh
    docker compose up -d
    ```
 
-4. Zaloguj się do panelu, otwórz **Rozszerzenie**, pobierz ZIP i rozpakuj go do stałego katalogu. W `vivaldi://extensions` włącz tryb dewelopera i załaduj rozpakowany katalog.
-5. Wygeneruj w panelu kod parowania (ważny 10 minut), wpisz go w rozszerzeniu i dodaj otwartą kartę wyszukiwania Allegro.
+3. Zaloguj się do panelu, otwórz **Rozszerzenie**, pobierz ZIP i rozpakuj go do stałego katalogu. W `vivaldi://extensions` włącz tryb dewelopera i załaduj rozpakowany katalog.
+4. Wygeneruj w panelu kod parowania (ważny 10 minut), wpisz go w rozszerzeniu i dodaj otwartą kartę wyszukiwania Allegro.
 
 ### Najważniejsze ustawienia
 
