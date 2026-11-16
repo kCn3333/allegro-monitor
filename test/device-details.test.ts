@@ -57,6 +57,40 @@ test("device status expires, counts only fresh enabled monitor tabs, and metadat
   assert.equal(store.listExtensionClients()[0]!.extensionVersion, "1.1.4");
 });
 
+test("device ordering and open-monitor counts distinguish fresh, stale, closed and disabled tabs", (t) => {
+  const settings = fixture(t);
+  let time = 1800000000000;
+  const store = new Store(settings.databasePath, undefined, () => time);
+  t.after(() => store.close());
+  const old = store.addExtensionClient("Old", "old");
+  const first = store.addExtensionClient("First", "first");
+  const second = store.addExtensionClient("Second", "second");
+  const unseen = store.addExtensionClient("Unseen", "unseen");
+  const stale = store.createMonitor("Stale", "https://allegro.pl/listing?string=stale", 5);
+  store.touchExtensionClient("old");
+  store.linkMonitorClient(stale, first);
+  time += 180001;
+  store.touchExtensionClient("first");
+  store.touchExtensionClient("second");
+  const fresh = store.createMonitor("Fresh", "https://allegro.pl/listing?string=fresh", 5);
+  store.linkMonitorClient(fresh, first);
+  store.linkMonitorClient(fresh, second);
+  const closed = store.createMonitor("Closed", "https://allegro.pl/listing?string=closed", 5);
+  store.linkMonitorClient(closed, first, false);
+  const disabled = store.createMonitor("Disabled", "https://allegro.pl/listing?string=disabled", 5);
+  store.linkMonitorClient(disabled, first);
+  store.toggleMonitor(disabled);
+  assert.deepEqual(
+    store.listExtensionClients().map(({ id, active, openMonitorsCount }) => [id, active, openMonitorsCount]),
+    [
+      [second, 1, 1],
+      [first, 1, 1],
+      [old, 0, 0],
+      [unseen, 0, 0],
+    ],
+  );
+});
+
 test("device page is private and authenticated presence validates metadata, ignores spoofed IP and supports legacy clients", async (t) => {
   const settings = fixture(t);
   const store = new Store(settings.databasePath);

@@ -156,11 +156,19 @@ test("links an extension paired later to all existing monitors", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-monitor-late-client-"));
   const store = new Store(path.join(directory, "test.sqlite"));
   try {
-    store.createMonitor("Istniejący", "https://allegro.pl/listing?string=test", 5);
+    const monitorId = store.createMonitor("Istniejący", "https://allegro.pl/listing?string=test", 5);
+    store.saveCheck(store.getMonitor(monitorId)!, []);
+    store.saveCheck(store.getMonitor(monitorId)!, [offer("offer:111111")]);
     const clientId = store.addExtensionClient("Nowy Vivaldi", "hash-late");
     store.linkClientToAllMonitors(clientId);
     assert.equal(store.hasMonitorClient(store.listMonitors()[0]!.id, clientId), true);
     assert.equal(store.listMonitors()[0]?.activeClientsCount, 0);
+    assert.deepEqual(store.pullNotifications(clientId), []);
+    store.saveCheck(store.getMonitor(monitorId)!, [offer("offer:111111"), offer("offer:222222")]);
+    assert.deepEqual(
+      store.pullNotifications(clientId).map((item) => item.externalId),
+      ["offer:222222"],
+    );
   } finally {
     store.close();
     fs.rmSync(directory, { recursive: true });
