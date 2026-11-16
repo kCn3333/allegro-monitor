@@ -25,8 +25,13 @@ export class Store {
     this.listingRetentionChecks = Math.max(2, listingRetentionChecks);
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-    initializeDatabaseSchema(this.db);
+    try {
+      this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+      initializeDatabaseSchema(this.db);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   listMonitors(): Monitor[] {

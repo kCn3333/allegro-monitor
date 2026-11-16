@@ -1,6 +1,47 @@
 import type { DatabaseSync } from "node:sqlite";
 
+const migrations: ReadonlyArray<(db: DatabaseSync) => void> = [migrateUnversionedSchema];
+
+function schemaVersion(db: DatabaseSync): number {
+  const version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (version < 0 || version > migrations.length)
+    throw new Error(`Nieobsługiwana wersja schematu SQLite: ${version}; obsługiwana: ${migrations.length}`);
+  return version;
+}
+
 export function initializeDatabaseSchema(db: DatabaseSync): void {
+  let version = schemaVersion(db);
+  if (version === migrations.length) return;
+  const foreignKeys = (db.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys;
+  const legacyAlterTable = (db.prepare("PRAGMA legacy_alter_table").get() as { legacy_alter_table: number })
+    .legacy_alter_table;
+  try {
+    // Keep references to rebuilt legacy tables pointing at their final names.
+    db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;");
+    while (version < migrations.length) {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        // Another connection may have completed a migration before this write lock.
+        version = schemaVersion(db);
+        if (version < migrations.length) {
+          migrations[version]!(db);
+          if (db.prepare("PRAGMA foreign_key_check").get())
+            throw new Error("Migracja SQLite narusza integralność kluczy obcych");
+          db.exec(`PRAGMA user_version = ${version + 1}`);
+          version += 1;
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        if (db.isTransaction) db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+  } finally {
+    db.exec(`PRAGMA legacy_alter_table = ${legacyAlterTable}; PRAGMA foreign_keys = ${foreignKeys};`);
+  }
+}
+
+function migrateUnversionedSchema(db: DatabaseSync): void {
   db.exec(`
       CREATE TABLE IF NOT EXISTS monitors (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,10 +161,8 @@ function migrateLegacySchema(db: DatabaseSync): void {
   );
   if (monitorSql.includes("interval_minutes >= 2")) {
     db.exec(`
-        PRAGMA foreign_keys = OFF;
         DROP INDEX IF EXISTS idx_monitors_due;
         DROP INDEX IF EXISTS idx_listings_seen;
-        BEGIN;
         ALTER TABLE listings RENAME TO listings_legacy;
         ALTER TABLE monitors RENAME TO monitors_legacy;
         CREATE TABLE monitors (
@@ -159,8 +198,6 @@ function migrateLegacySchema(db: DatabaseSync): void {
           SELECT id,monitor_id,external_id,title,url,price,image_url,first_seen_at,first_seen_at FROM listings_legacy;
         DROP TABLE listings_legacy;
         DROP TABLE monitors_legacy;
-        COMMIT;
-        PRAGMA foreign_keys = ON;
       `);
   }
 }

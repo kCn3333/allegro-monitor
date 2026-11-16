@@ -114,6 +114,12 @@ Przed aktualizacją wykonaj backup, zachowaj konfigurację i SHA poprzedniego ob
 
 Rollback wymaga **zgodnego zestawu obrazu i kopii bazy**. Po migracji nie uruchamiaj starszego obrazu na zmienionej bazie bez potwierdzenia zgodności. Odtwórz kopię sprzed aktualizacji do nowego wolumenu, przetestuj z odpowiadającym jej obrazem, a dopiero potem zatrzymaj aplikację i zmień w stosie Portainera zarówno obraz, jak i wskazanie wolumenu. Nie usuwaj starego wolumenu przed potwierdzeniem wyniku. Odtworzenie cofa dane do chwili backupu; po ponownym włączeniu Telegrama zadania wysłane po tej chwili mogą spowodować powtórne wiadomości.
 
+## Wersja schematu SQLite
+
+Aplikacja zapisuje wersję schematu w `PRAGMA user_version`. Wartość `0` oznacza brak numerowania: dotyczy zarówno pustej bazy, jak i wcześniej używanych, wspieranych schematów. Migracja `0→1` stosuje dotychczasowe reguły aktualizacji. Każdy krok wraz z zapisem wersji jest jedną transakcją; błąd wycofuje schemat, dane i numer wersji. Po usunięciu przyczyny można ponowić start.
+
+Zakończone migracje nie są ponawiane. Baza z wersją nowszą niż obsługiwana blokuje start bez zmiany schematu i danych. Nie zmieniaj ręcznie `user_version`, aby wymusić uruchomienie starszego obrazu; rollback nadal wymaga obrazu zgodnego z kopią bazy sprzed aktualizacji.
+
 ## Wykonana próba
 
 Próba z 2026-11-14: rootless Podman 6.1.3 na Linux amd64, obraz zbudowany z commita `84faf3e0814c8b8d1f13f4e89bc375d0bb1adb1b`, SQLite 3.54.1. Użyto dwóch nowych wolumenów, danych syntetycznych, `--network none`, bez portów hosta, tunelu i tokenu Telegrama. Sprawdzono operacje kontenerowe odpowiadające powyższym poleceniom; nie sprawdzano silnika Docker ani interfejsu Portainera.
