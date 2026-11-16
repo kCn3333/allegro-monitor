@@ -18,9 +18,13 @@ export function validateImageUrl(value: unknown): string | null {
   }
 }
 
+function isHttpsAllegroUrl(url: URL): boolean {
+  return url.protocol === "https:" && /(^|\.)allegro\.pl$/i.test(url.hostname);
+}
+
 export function assertAllegroUrl(raw: string): URL {
   const url = new URL(raw);
-  if (url.protocol !== "https:" || !/(^|\.)allegro\.pl$/i.test(url.hostname)) {
+  if (!isHttpsAllegroUrl(url)) {
     throw new Error("Dozwolone są wyłącznie adresy HTTPS w domenie allegro.pl");
   }
   const isSearchPath = url.pathname === "/listing" || url.pathname.startsWith("/kategoria/");
@@ -42,8 +46,7 @@ export function validateListings(input: unknown): Listing[] {
       .slice(0, 500);
     const rawUrl = String(value.url || "");
     const url = new URL(rawUrl);
-    if (!externalId || !title || url.protocol !== "https:" || !/(^|\.)allegro\.pl$/i.test(url.hostname))
-      throw new Error("Nieprawidłowe dane oferty");
+    if (!externalId || !title || !isHttpsAllegroUrl(url)) throw new Error("Nieprawidłowe dane oferty");
     return {
       externalId,
       title,
