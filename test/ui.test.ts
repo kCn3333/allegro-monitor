@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildApp } from "../src/server.js";
 import { config } from "../src/config.js";
+import { escapeHtml } from "../src/layout.js";
 
 test("renders the personalized login panel and remember-me control", () => {
   const html = renderLogin();
@@ -77,4 +78,27 @@ test("only allowlisted branding and script assets load before login with correct
   const expectedCsp =
     "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
   assert.equal((await app.inject("/login")).headers["content-security-policy"], expectedCsp);
+});
+
+test("panel HTML escaping preserves coercion, Unicode and exact entity encoding", () => {
+  const cases: Array<[unknown, string]> = [
+    ["&", "&amp;"],
+    ["<", "&lt;"],
+    [">", "&gt;"],
+    ['"', "&quot;"],
+    ["'", "&#39;"],
+    ["&<>\"'", "&amp;&lt;&gt;&quot;&#39;"],
+    [null, ""],
+    [undefined, ""],
+    ["", ""],
+    [0, "0"],
+    [false, "false"],
+    ["Zażółć gęślą jaźń 📚 漢字", "Zażółć gęślą jaźń 📚 漢字"],
+    [
+      "&amp; &lt; &gt; &quot; &#39; &#x27; &unknown;",
+      "&amp;amp; &amp;lt; &amp;gt; &amp;quot; &amp;#39; &amp;#x27; &amp;unknown;",
+    ],
+    [{ toString: () => "<value &>" }, "&lt;value &amp;&gt;"],
+  ];
+  for (const [value, expected] of cases) assert.equal(escapeHtml(value), expected);
 });

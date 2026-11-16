@@ -1,22 +1,9 @@
 import { icon } from "./icons.js";
 import { brandHead, brandLogo } from "./branding.js";
-import { interactionStyles, renderLayout } from "./layout.js";
+import { escapeHtml as esc, interactionStyles, renderLayout } from "./layout.js";
 import type { Listing, Monitor, MonitorExclusion } from "./types.js";
 import { config } from "./config.js";
 import { validateImageUrl } from "./validation.js";
-
-const esc = (value: unknown) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (char) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[char]!,
-  );
 
 function date(value: string | null): string {
   return value

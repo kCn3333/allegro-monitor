@@ -569,3 +569,24 @@ test("device confirmations survive refresh, preserve editing and cancel or submi
   await confirmSubmit(page, 'form[action="/devices/revoke-all"] button', true, /Odłączyć wszystkie urządzenia/);
   assert.equal(store.listExtensionClients().length, 0);
 });
+
+test("untrusted monitor and offer values remain text and quoted attributes", async (t) => {
+  const { page, store, monitor, login } = await fixture(t);
+  const name = `Wiola <img src=x onerror="alert(1)"> &amp; '📚'`;
+  const title = `Książka <script>alert("oferta")</script> &copy; '漢字'`;
+  const url = `https://allegro.pl/oferta/book-123456?title=${title}&owner="Wiola"`;
+  store.renameMonitor(monitor, name);
+  store.saveCheck(store.getMonitor(monitor)!, [
+    { externalId: "offer:123456", title, url, price: "20 zł", imageUrl: null },
+  ]);
+  await login();
+  const card = page.locator(`[data-monitor-id="${monitor}"]`);
+  assert.equal(await card.locator("h3").textContent(), name);
+  assert.equal(await card.locator('input[name="name"]').inputValue(), name);
+  assert.equal(await card.locator("img, script, [onerror]").count(), 0);
+  const offer = page.locator(".offer-card").first();
+  const link = offer.locator(".offer-content > a");
+  assert.equal(await link.textContent(), title);
+  assert.equal(await link.getAttribute("href"), url);
+  assert.equal(await offer.locator("script, [onerror]").count(), 0);
+});
