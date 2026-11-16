@@ -12,13 +12,27 @@ import { icon } from "../../src/icons.js";
 
 async function fixture(t: TestContext) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-panel-browser-"));
-  const settings = { ...config, databasePath: path.join(directory, "db.sqlite"), username: "owner",
-    password: "test-password", sessionSecret: "s".repeat(32), telegramBotToken: "", publicUrl: "" };
+  const settings = {
+    ...config,
+    databasePath: path.join(directory, "db.sqlite"),
+    username: "owner",
+    password: "test-password",
+    sessionSecret: "s".repeat(32),
+    telegramBotToken: "",
+    publicUrl: "",
+  };
   const store = new Store(settings.databasePath);
   const monitor = store.createMonitor("Rzadkie książki", "https://allegro.pl/listing?string=book", 5);
   const removable = store.createMonitor("Do usunięcia", "https://allegro.pl/listing?string=other", 15);
-  store.saveCheck(store.getMonitor(monitor)!, [{ externalId: "offer:123456", title: "Rzadka książka",
-    url: "https://allegro.pl/oferta/book-123456", price: "20 zł", imageUrl: null }]);
+  store.saveCheck(store.getMonitor(monitor)!, [
+    {
+      externalId: "offer:123456",
+      title: "Rzadka książka",
+      url: "https://allegro.pl/oferta/book-123456",
+      price: "20 zł",
+      imageUrl: null,
+    },
+  ]);
   const first = store.addExtensionClient("Pierwsze urządzenie", tokenHash("first-token"));
   store.addExtensionClient("Drugie urządzenie", tokenHash("second-token"));
   const app = await buildApp({ config: settings, startWorker: false });
@@ -26,13 +40,16 @@ async function fixture(t: TestContext) {
   const browser = await chromium.launch();
   const context = await browser.newContext({ colorScheme: "dark" });
   await context.addInitScript(() => {
-    document.addEventListener("securitypolicyviolation", event => console.error("CSP violation:", event.violatedDirective));
+    document.addEventListener("securitypolicyviolation", (event) =>
+      console.error("CSP violation:", event.violatedDirective),
+    );
   });
   const page = await context.newPage();
   const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  page.on("console", message => {
-    if (message.type() === "error" && /CSP|Content Security Policy|Refused to/i.test(message.text())) errors.push(message.text());
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" && /CSP|Content Security Policy|Refused to/i.test(message.text()))
+      errors.push(message.text());
   });
   t.after(async () => {
     await browser.close();
@@ -49,8 +66,14 @@ async function fixture(t: TestContext) {
     assert.ok(csp.includes("style-src 'self' 'unsafe-inline';"));
     assert.ok(!csp.includes("unsafe-eval"));
     assert.equal(await page.locator("script:not([src])").count(), 0);
-    assert.equal(await page.locator("*").evaluateAll(elements => elements.some(element =>
-      [...element.attributes].some(attribute => /^on/i.test(attribute.name)))), false);
+    assert.equal(
+      await page
+        .locator("*")
+        .evaluateAll((elements) =>
+          elements.some((element) => [...element.attributes].some((attribute) => /^on/i.test(attribute.name))),
+        ),
+      false,
+    );
   }
   async function login() {
     await visit("/login");
@@ -73,37 +96,49 @@ async function confirmSubmit(page: Page, selector: string, accept: boolean, mess
   if (navigation) await navigation;
 }
 
-test("all panel button styles give hover feedback in both themes, including login and secondary actions", { timeout: 60000 }, async t => {
+test("all panel button styles give hover feedback in both themes, including login and secondary actions", {
+  timeout: 60000,
+}, async (t) => {
   const { page, store, monitor, login, visit } = await fixture(t);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const first = { externalId: "offer:123456", title: "Rzadka książka", url: "https://allegro.pl/oferta/book-123456", price: "20 zł", imageUrl: null };
+  const first = {
+    externalId: "offer:123456",
+    title: "Rzadka książka",
+    url: "https://allegro.pl/oferta/book-123456",
+    price: "20 zł",
+    imageUrl: null,
+  };
   store.saveCheck(store.getMonitor(monitor)!, [first, { ...first, externalId: "offer:654321", title: "Inna książka" }]);
   store.addExclusion(monitor, first.externalId);
   const checkHover = async (control: ReturnType<Page["locator"]>) => {
     await page.mouse.move(0, 0);
-    const before = await control.evaluate(el => {
+    const before = await control.evaluate((el) => {
       const style = getComputedStyle(el);
       return [style.backgroundColor, style.borderColor, style.color, style.boxShadow].join("|");
     });
     await control.hover();
-    const after = await control.evaluate(el => {
+    const after = await control.evaluate((el) => {
       const style = getComputedStyle(el);
       return [style.backgroundColor, style.borderColor, style.color, style.boxShadow].join("|");
     });
-    assert.notEqual(after, before, `hover feedback: ${await control.evaluate(el => el.outerHTML.slice(0, 160))}`);
+    assert.notEqual(after, before, `hover feedback: ${await control.evaluate((el) => el.outerHTML.slice(0, 160))}`);
   };
   await visit("/login");
   for (const theme of ["light", "dark"]) {
-    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
     await checkHover(page.getByRole("button", { name: "Zaloguj się" }));
   }
   await login();
   for (const theme of ["light", "dark"]) {
     for (const route of ["/", "/devices", "/extension", "/faq"]) {
       await visit(route);
-      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
       for (const control of await page.locator("button, a.button, .github-link, summary").all()) {
-        if (await control.isVisible() && await control.isEnabled()) await checkHover(control);
+        if ((await control.isVisible()) && (await control.isEnabled())) await checkHover(control);
       }
       for (const rename of await page.locator(".rename").all()) {
         await rename.locator("summary").click();
@@ -115,15 +150,17 @@ test("all panel button styles give hover feedback in both themes, including logi
         await checkHover(page.getByRole("button", { name: "Przywróć", exact: true }));
         await page.mouse.move(0, 0);
         const track = page.locator(".switch span").first();
-        const before = await track.evaluate(el => getComputedStyle(el).boxShadow);
+        const before = await track.evaluate((el) => getComputedStyle(el).boxShadow);
         await page.locator(".switch").first().hover();
-        assert.notEqual(await track.evaluate(el => getComputedStyle(el).boxShadow), before);
+        assert.notEqual(await track.evaluate((el) => getComputedStyle(el).boxShadow), before);
       }
     }
   }
 });
 
-test("panel refresh highlights only a checked monitor for 3.5 seconds and preserves open editing", { timeout: 30000 }, async t => {
+test("panel refresh highlights only a checked monitor for 3.5 seconds and preserves open editing", {
+  timeout: 30000,
+}, async (t) => {
   const { page, store, monitor, removable, login, visit } = await fixture(t);
   await login();
   await page.clock.install({ time: new Date("2026-11-14T12:00:00Z") });
@@ -133,40 +170,64 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   const other = page.locator(`[data-monitor-id="${removable}"]`);
   assert.match(await page.locator(".about blockquote").innerText(), /specjalnie dla Wioli/);
   assert.equal(await page.locator(".about figcaption").innerText(), "— Jacek");
-  assert.equal(await page.locator(".about").evaluate(el => getComputedStyle(el).textAlign), "center");
-  assert.ok(await page.locator(".about blockquote").evaluate(el => parseFloat(getComputedStyle(el).fontSize) <= 21));
-  assert.match(await page.locator(".about").evaluate(el => getComputedStyle(el).backdropFilter), /blur\(14px\)/);
+  assert.equal(await page.locator(".about").evaluate((el) => getComputedStyle(el).textAlign), "center");
+  assert.ok(await page.locator(".about blockquote").evaluate((el) => parseFloat(getComputedStyle(el).fontSize) <= 21));
+  assert.match(await page.locator(".about").evaluate((el) => getComputedStyle(el).backdropFilter), /blur\(14px\)/);
   const dedicationBox = await page.locator(".about").boundingBox();
   const headerBox = await page.locator(".topbar").boundingBox();
-  assert.ok(dedicationBox && headerBox && dedicationBox.y - headerBox.y - headerBox.height >= 48, "extra space above the dedication");
+  assert.ok(
+    dedicationBox && headerBox && dedicationBox.y - headerBox.y - headerBox.height >= 48,
+    "extra space above the dedication",
+  );
   const heart = page.locator(".dedication-hearts > span").first();
-  assert.equal(await heart.evaluate(el => getComputedStyle(el).opacity), "0");
+  assert.equal(await heart.evaluate((el) => getComputedStyle(el).opacity), "0");
   await page.evaluate("Math.random = () => 0.25");
   await page.locator(".about").hover();
-  assert.equal(await heart.evaluate(el => getComputedStyle(el).animationName), "dedication-float");
-  assert.equal(await heart.evaluate(el => (el as HTMLElement).style.getPropertyValue("--heart-x")), "28%");
-  assert.equal(await heart.evaluate(el => getComputedStyle(el).animationDuration), "3.1s");
+  assert.equal(await heart.evaluate((el) => getComputedStyle(el).animationName), "dedication-float");
+  assert.equal(await heart.evaluate((el) => (el as HTMLElement).style.getPropertyValue("--heart-x")), "28%");
+  assert.equal(await heart.evaluate((el) => getComputedStyle(el).animationDuration), "3.1s");
   assert.equal(await page.locator(".dedication-hearts").getAttribute("aria-hidden"), "true");
-  assert.equal(await page.locator(".dedication-hearts").evaluate(el => getComputedStyle(el).pointerEvents), "none");
+  assert.equal(await page.locator(".dedication-hearts").evaluate((el) => getComputedStyle(el).pointerEvents), "none");
   await page.mouse.move(0, 0);
-  assert.equal(await heart.evaluate(el => getComputedStyle(el).opacity), "0");
+  assert.equal(await heart.evaluate((el) => getComputedStyle(el).opacity), "0");
   await page.evaluate("Math.random = () => 0.75");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.locator(".about").hover();
-  assert.equal(await heart.evaluate(el => getComputedStyle(el).animationName), "none");
-  assert.ok(await heart.evaluate(el => Number(getComputedStyle(el).opacity) > 0));
-  assert.equal(await heart.evaluate(el => (el as HTMLElement).style.getPropertyValue("--heart-x")), "72%", "each hover generates a new arrangement");
+  assert.equal(await heart.evaluate((el) => getComputedStyle(el).animationName), "none");
+  assert.ok(await heart.evaluate((el) => Number(getComputedStyle(el).opacity) > 0));
+  assert.equal(
+    await heart.evaluate((el) => (el as HTMLElement).style.getPropertyValue("--heart-x")),
+    "72%",
+    "each hover generates a new arrangement",
+  );
   await page.mouse.move(0, 0);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   const open = await card.getByRole("link", { name: "Otwórz Allegro" }).boundingBox();
   const remove = await card.getByRole("button", { name: "Usuń" }).boundingBox();
   assert.ok(open && remove && open.x < remove.x);
-  assert.notEqual(await card.locator(".monitor-meta").evaluate(el => getComputedStyle(el).backgroundColor), await card.evaluate(el => getComputedStyle(el).backgroundColor));
+  assert.notEqual(
+    await card.locator(".monitor-meta").evaluate((el) => getComputedStyle(el).backgroundColor),
+    await card.evaluate((el) => getComputedStyle(el).backgroundColor),
+  );
   store.saveCheck(store.getMonitor(monitor)!, [
-    { externalId: "offer:123456", title: "Rzadka książka", url: "https://allegro.pl/oferta/book-123456", price: "20 zł", imageUrl: null },
-    { externalId: "offer:654321", title: "Nowa książka", url: "https://allegro.pl/oferta/book-654321", price: "25 zł", imageUrl: null }
+    {
+      externalId: "offer:123456",
+      title: "Rzadka książka",
+      url: "https://allegro.pl/oferta/book-123456",
+      price: "20 zł",
+      imageUrl: null,
+    },
+    {
+      externalId: "offer:654321",
+      title: "Nowa książka",
+      url: "https://allegro.pl/oferta/book-654321",
+      price: "25 zł",
+      imageUrl: null,
+    },
   ]);
-  const refresh = page.waitForResponse(response => new URL(response.url()).pathname === "/" && response.request().resourceType() === "fetch");
+  const refresh = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/" && response.request().resourceType() === "fetch",
+  );
   await page.clock.fastForward(5000);
   await refresh;
   await card.locator(".check-feedback:visible").waitFor();
@@ -174,7 +235,10 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   assert.equal(await other.getAttribute("aria-busy"), null);
   assert.equal(await card.getByRole("button", { name: "Usuń" }).isDisabled(), true);
   assert.equal(await card.locator(".switch input").isDisabled(), true);
-  assert.equal(await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate(el => (el as HTMLElement).inert), true);
+  assert.equal(
+    await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate((el) => (el as HTMLElement).inert),
+    true,
+  );
   assert.equal(await page.getByRole("link", { name: "Nowa książka", exact: true }).count(), 1);
   await page.clock.fastForward(3499);
   assert.equal(await card.getAttribute("aria-busy"), "true");
@@ -182,7 +246,10 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   assert.equal(await card.getAttribute("aria-busy"), null);
   assert.equal(await card.getByRole("button", { name: "Usuń" }).isDisabled(), false);
   assert.equal(await card.locator(".switch input").isDisabled(), false);
-  assert.equal(await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate(el => (el as HTMLElement).inert), false);
+  assert.equal(
+    await card.getByRole("link", { name: "Otwórz Allegro" }).evaluate((el) => (el as HTMLElement).inert),
+    false,
+  );
   await card.locator(".rename summary").click();
   await card.locator('input[name="name"]').fill("Niezapisana nazwa");
   store.renameMonitor(monitor, "Nazwa na serwerze");
@@ -190,25 +257,43 @@ test("panel refresh highlights only a checked monitor for 3.5 seconds and preser
   assert.equal(await card.locator('input[name="name"]').inputValue(), "Niezapisana nazwa");
 });
 
-test("popup exposes a persistent notification snooze switch with timed expiry and manual resume", { timeout: 30000 }, async t => {
+test("popup exposes a persistent notification snooze switch with timed expiry and manual resume", {
+  timeout: 30000,
+}, async (t) => {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  await context.route("https://popup.example/**", route => {
+  page.on("pageerror", (error) => errors.push(error.message));
+  await context.route("https://popup.example/**", (route) => {
     const file = new URL(route.request().url()).pathname.slice(1) || "popup.html";
-    const types: Record<string, string> = { "popup.html": "text/html", "popup.css": "text/css", "popup.js": "text/javascript", "popup-icons.js": "text/javascript", "icon-128.png": "image/png" };
-    if (file === "backend-config.js") return route.fulfill({ contentType: "text/javascript", body: 'export const BACKEND_URL = "https://monitor.example";' });
+    const types: Record<string, string> = {
+      "popup.html": "text/html",
+      "popup.css": "text/css",
+      "popup.js": "text/javascript",
+      "popup-icons.js": "text/javascript",
+      "icon-128.png": "image/png",
+    };
+    if (file === "backend-config.js")
+      return route.fulfill({
+        contentType: "text/javascript",
+        body: 'export const BACKEND_URL = "https://monitor.example";',
+      });
     if (file === "popup-icons.js") {
-      const icons = Object.fromEntries((["panel", "eye", "bell", "pair", "add", "refresh", "trash", "external", "check"] as const).map(name => [name, icon(name)]));
+      const icons = Object.fromEntries(
+        (["panel", "eye", "bell", "pair", "add", "refresh", "trash", "external", "check"] as const).map((name) => [
+          name,
+          icon(name),
+        ]),
+      );
       return route.fulfill({ contentType: "text/javascript", body: `export const icons = ${JSON.stringify(icons)};` });
     }
     if (!types[file]) return route.abort();
     return route.fulfill({ contentType: types[file], body: fs.readFileSync(path.join("extension", file)) });
   });
-  await context.addInitScript({ content: `
+  await context.addInitScript({
+    content: `
     const data = JSON.parse(sessionStorage.getItem("popup-test-state") || JSON.stringify({ token: "existing-token", watched: [
       { monitorId: 1, name: "Pierwszy monitor", url: "https://allegro.pl/listing?string=book", tabId: 1, tabOpen: true, enabled: true, notificationsEnabled: true, intervalMinutes: 5, lastCheckNewCount: 2 },
       { monitorId: 2, name: "Drugi monitor", url: "https://allegro.pl/listing?string=other", tabOpen: false, enabled: true, notificationsEnabled: false, intervalMinutes: 15 }
@@ -227,36 +312,62 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
         respond({ ok: true, result: true });
       } }
     };
-` });
+`,
+  });
   await page.clock.install({ time: new Date("2026-11-14T12:00:00Z") });
   await page.clock.pauseAt(new Date("2026-11-14T12:00:01Z"));
   await page.goto("https://popup.example/popup.html");
   await page.locator('#connection[data-state="online"]').waitFor();
   assert.equal(await page.locator("#connection-label").innerText(), "Połączono");
-  assert.ok(await page.locator("#connection-label").evaluate(el => el.classList.contains("sr-only")), "online status uses just the visible dot");
+  assert.ok(
+    await page.locator("#connection-label").evaluate((el) => el.classList.contains("sr-only")),
+    "online status uses just the visible dot",
+  );
   assert.match(await page.locator("#last-sync").innerText(), /Ostatnia synchronizacja:/);
   assert.ok(await page.locator("#last-sync").getAttribute("datetime"));
-  assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "connection-pulse");
+  assert.equal(
+    await page.locator(".connection-dot").evaluate((el) => getComputedStyle(el).animationName),
+    "connection-pulse",
+  );
   const heading = await page.locator("header h1").boundingBox();
   const connection = await page.locator("#connection").boundingBox();
-  assert.ok(heading && connection && connection.x >= heading.x + heading.width && Math.abs(connection.y - heading.y) <= 4, "connection stays in the upper-right corner beside the brand");
+  assert.ok(
+    heading && connection && connection.x >= heading.x + heading.width && Math.abs(connection.y - heading.y) <= 4,
+    "connection stays in the upper-right corner beside the brand",
+  );
   for (const id of ["name", "interval"]) {
     const label = await page.locator(`label[for="${id}"] > span`).boundingBox();
     const input = await page.locator(`#${id}`).boundingBox();
-    assert.ok(label && input && label.x < input.x && Math.abs(label.y + label.height / 2 - input.y - input.height / 2) < 1, `${id} label and field share a row`);
+    assert.ok(
+      label && input && label.x < input.x && Math.abs(label.y + label.height / 2 - input.y - input.height / 2) < 1,
+      `${id} label and field share a row`,
+    );
   }
   assert.equal(await page.locator(".popup-footer").innerText(), "kCn & Codex · dla Wioli 📚");
   assert.ok(await page.locator(".popup-footer").isVisible());
-  assert.ok(await page.locator(".popup-footer").evaluate(el => document.body.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom <= 9));
-  assert.equal(await page.locator(".popup-footer").evaluate(el => getComputedStyle(el).borderTopStyle), "solid");
+  assert.ok(
+    await page
+      .locator(".popup-footer")
+      .evaluate((el) => document.body.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom <= 9),
+  );
+  assert.equal(await page.locator(".popup-footer").evaluate((el) => getComputedStyle(el).borderTopStyle), "solid");
   const snoozeRow = await page.locator(".snooze-row").boundingBox();
   const addSection = await page.locator("#connected").boundingBox();
-  assert.ok(snoozeRow && addSection && snoozeRow.y + snoozeRow.height <= addSection.y, "snooze precedes the add-monitor section");
-  const rowCenters = await page.locator(".snooze-row > *").evaluateAll(elements => elements.map(el => {
-    const box = el.getBoundingClientRect(); return box.y + box.height / 2;
-  }));
+  assert.ok(
+    snoozeRow && addSection && snoozeRow.y + snoozeRow.height <= addSection.y,
+    "snooze precedes the add-monitor section",
+  );
+  const rowCenters = await page.locator(".snooze-row > *").evaluateAll((elements) =>
+    elements.map((el) => {
+      const box = el.getBoundingClientRect();
+      return box.y + box.height / 2;
+    }),
+  );
   assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 1, "snooze label, duration and switch share one row");
-  assert.equal(await page.getByText("Monitorowanie i lista nowych ofert pozostają aktywne.", { exact: true }).count(), 0);
+  assert.equal(
+    await page.getByText("Monitorowanie i lista nowych ofert pozostają aktywne.", { exact: true }).count(),
+    0,
+  );
   await page.getByRole("button", { name: "Obserwowane", exact: true }).click();
   assert.equal(await page.locator(".popup-footer").isVisible(), false);
   await page.getByRole("button", { name: "Monitor", exact: true }).click();
@@ -290,7 +401,7 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   await page.locator("#snooze-enabled:not(:disabled)").waitFor();
   assert.equal(await toggle.isChecked(), false);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "none");
+  assert.equal(await page.locator(".connection-dot").evaluate((el) => getComputedStyle(el).animationName), "none");
   await page.getByRole("button", { name: "Obserwowane", exact: true }).click();
   assert.equal(await page.getByText("Powiadomienia na tym urządzeniu", { exact: true }).count(), 0);
   const firstWatch = page.locator(".watch").first();
@@ -298,7 +409,13 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
   const secondToggle = page.getByRole("switch", { name: "Powiadomienia: Drugi monitor" });
   const watchBox = await firstWatch.boundingBox();
   const switchBox = await firstWatch.locator(".watch-notify").boundingBox();
-  assert.ok(watchBox && switchBox && Math.abs(watchBox.x + watchBox.width - switchBox.x - switchBox.width - 11) < 1 && Math.abs(switchBox.y - watchBox.y - 11) < 1, "switch stays in the upper-right corner of its card");
+  assert.ok(
+    watchBox &&
+      switchBox &&
+      Math.abs(watchBox.x + watchBox.width - switchBox.x - switchBox.width - 11) < 1 &&
+      Math.abs(switchBox.y - watchBox.y - 11) < 1,
+    "switch stays in the upper-right corner of its card",
+  );
   assert.equal(await firstToggle.isChecked(), true);
   assert.equal(await secondToggle.isChecked(), false);
   await firstWatch.locator(".watch-notify").click();
@@ -313,16 +430,22 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
       await page.locator(`button[data-tab="${tab}"]`).click();
       for (const button of await page.locator("button:visible:enabled").all()) {
         await page.mouse.move(0, 0);
-        const before = await button.evaluate(el => { const style = getComputedStyle(el); return [style.backgroundColor, style.color, style.boxShadow].join("|"); });
+        const before = await button.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return [style.backgroundColor, style.color, style.boxShadow].join("|");
+        });
         await button.hover();
-        const after = await button.evaluate(el => { const style = getComputedStyle(el); return [style.backgroundColor, style.color, style.boxShadow].join("|"); });
+        const after = await button.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return [style.backgroundColor, style.color, style.boxShadow].join("|");
+        });
         assert.notEqual(after, before, `popup button hover: ${await button.innerText()}`);
       }
     }
   }
   await page.getByRole("button", { name: "Monitor", exact: true }).click();
   for (const connection of ["offline", "unauthorized"]) {
-    await page.evaluate(connection => {
+    await page.evaluate((connection) => {
       const data = JSON.parse(sessionStorage.getItem("popup-test-state")!);
       data.connection = connection;
       sessionStorage.setItem("popup-test-state", JSON.stringify(data));
@@ -330,17 +453,23 @@ test("popup exposes a persistent notification snooze switch with timed expiry an
     await page.reload();
     await page.locator(`#connection[data-state="${connection}"]`).waitFor();
     assert.notEqual(await page.locator("#connection-label").innerText(), "Połączono");
-    assert.equal(await page.locator(".connection-dot").evaluate(el => getComputedStyle(el).animationName), "none");
-    assert.ok(await page.locator("#last-sync").getAttribute("datetime"), "connection errors retain the date of the last successful sync");
+    assert.equal(await page.locator(".connection-dot").evaluate((el) => getComputedStyle(el).animationName), "none");
+    assert.ok(
+      await page.locator("#last-sync").getAttribute("datetime"),
+      "connection errors retain the date of the last successful sync",
+    );
   }
   assert.deepEqual(errors, []);
 });
 
-test("strict CSP preserves theme, login, navigation, icons and pairing", { timeout: 30000 }, async t => {
+test("strict CSP preserves theme, login, navigation, icons and pairing", { timeout: 30000 }, async (t) => {
   const { page, context, visit, login, base, store } = await fixture(t);
   await visit("/login");
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
-  assert.equal(await page.locator(".logo").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0), true);
+  assert.equal(
+    await page.locator(".logo").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+    true,
+  );
   await login();
   assert.equal(await page.locator('[data-theme-icon="sun"]').isVisible(), true);
   await page.getByRole("button", { name: "Włącz jasny motyw" }).click();
@@ -349,28 +478,37 @@ test("strict CSP preserves theme, login, navigation, icons and pairing", { timeo
   for (const route of ["/", "/devices", "/extension", "/faq"]) {
     await visit(route);
     assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
-    assert.equal(await page.getByRole("button", { name: "Włącz ciemny motyw" }).getAttribute("title"), "Włącz ciemny motyw");
+    assert.equal(
+      await page.getByRole("button", { name: "Włącz ciemny motyw" }).getAttribute("title"),
+      "Włącz ciemny motyw",
+    );
   }
   await page.locator(".questions summary").first().click();
   assert.equal(await page.locator(".questions details").first().getAttribute("open"), "");
   await visit("/extension");
   await page.getByRole("button", { name: "Wygeneruj kod parowania" }).click();
-  await page.waitForFunction(() => /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.getElementById("code")?.textContent || ""));
+  await page.waitForFunction(() =>
+    /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.getElementById("code")?.textContent || ""),
+  );
   const code = await page.locator("#code").innerText();
   const paired = await context.request.post(base + "/api/extension/pair", { data: { code, name: "Z przeglądarki" } });
   assert.equal(paired.status(), 200);
-  assert.ok(store.listExtensionClients().some(device => device.name === "Z przeglądarki"));
+  assert.ok(store.listExtensionClients().some((device) => device.name === "Z przeglądarki"));
   await Promise.all([page.waitForURL(base + "/login"), page.getByRole("button", { name: "Wyloguj" }).click()]);
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
   await page.reload();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
 });
 
-test("monitor forms toggle and rename; confirmation cancellation never submits mutations", { timeout: 30000 }, async t => {
+test("monitor forms toggle and rename; confirmation cancellation never submits mutations", {
+  timeout: 30000,
+}, async (t) => {
   const { page, store, monitor, removable, visit, login } = await fixture(t);
   await login();
   const posts: string[] = [];
-  page.on("request", request => { if (request.method() === "POST") posts.push(new URL(request.url()).pathname); });
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
+  });
   const toggle = `.toggle-form[action="/monitors/${monitor}/toggle"] input`;
   await Promise.all([page.waitForNavigation(), page.locator(toggle).uncheck({ force: true })]);
   assert.equal(store.getMonitor(monitor)?.enabled, 0);
@@ -397,7 +535,9 @@ test("monitor forms toggle and rename; confirmation cancellation never submits m
   await visit("/");
 });
 
-test("device confirmations survive refresh, preserve editing and cancel or submit correctly", { timeout: 30000 }, async t => {
+test("device confirmations survive refresh, preserve editing and cancel or submit correctly", {
+  timeout: 30000,
+}, async (t) => {
   const { page, store, first, visit, login } = await fixture(t);
   await login();
   await page.clock.install();
@@ -408,14 +548,18 @@ test("device confirmations survive refresh, preserve editing and cancel or submi
   await page.clock.fastForward(60000);
   assert.equal(await rename.getByRole("textbox").inputValue(), "Edytowana nazwa");
   await Promise.all([page.waitForNavigation(), rename.getByRole("button", { name: "Zapisz" }).click()]);
-  assert.equal(store.listExtensionClients().find(device => device.id === first)?.name, "Edytowana nazwa");
+  assert.equal(store.listExtensionClients().find((device) => device.id === first)?.name, "Edytowana nazwa");
   store.renameExtensionClient(first, "Odświeżone urządzenie");
-  const refresh = page.waitForResponse(response => new URL(response.url()).pathname === "/devices" && response.request().resourceType() === "fetch");
+  const refresh = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/devices" && response.request().resourceType() === "fetch",
+  );
   await page.clock.fastForward(60000);
   await refresh;
   await page.getByRole("heading", { name: "Odświeżone urządzenie" }).waitFor();
   const posts: string[] = [];
-  page.on("request", request => { if (request.method() === "POST") posts.push(request.url()); });
+  page.on("request", (request) => {
+    if (request.method() === "POST") posts.push(request.url());
+  });
   await confirmSubmit(page, `form[action="/devices/${first}/revoke"] button`, false, /Odłączyć to urządzenie/);
   await confirmSubmit(page, 'form[action="/devices/revoke-all"] button', false, /Odłączyć wszystkie urządzenia/);
   assert.equal(store.listExtensionClients().length, 2);

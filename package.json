@@ -11,7 +11,10 @@
     "test": "node --experimental-sqlite --import tsx --test test/**/*.test.ts",
     "test:coverage": "c8 npm test",
     "test:browser": "node --experimental-sqlite --import tsx --test test/browser/*.browser.ts",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "format": "biome format --write test",
+    "format:check": "biome format test",
+    "lint": "biome lint test"
   },
   "dependencies": {
     "@fastify/formbody": "^8.0.2",
@@ -20,6 +23,7 @@
     "fastify": "^5.12.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@types/node": "^22.18.6",
     "c8": "^12.0.0",
     "playwright": "1.65.1",

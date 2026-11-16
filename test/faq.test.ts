@@ -9,7 +9,9 @@ test("FAQ documents the operational and security limits", () => {
   assert.match(html, /potwierdza jej stan co minutę/);
   assert.match(html, /Co oznacza \+N\?/);
   assert.match(html, /dokładne wykluczenia/i);
-  const disclosure = html.match(/<summary>Jakie dane są przekazywane przez rozszerzenie\?<\/summary><p>(.*?)<\/p>/)?.[1];
+  const disclosure = html.match(
+    /<summary>Jakie dane są przekazywane przez rozszerzenie\?<\/summary><p>(.*?)<\/p>/,
+  )?.[1];
   assert.ok(disclosure);
   assert.match(disclosure, /wersję rozszerzenia, system i architekturę/);
   assert.match(disclosure, /dane o wersji systemu i przeglądarki/);

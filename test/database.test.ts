@@ -11,7 +11,7 @@ const offer = (id: string) => ({
   title: `Oferta ${id}`,
   url: `https://allegro.pl/oferta/test-${id.replace(/\D/g, "") || "123456"}`,
   price: "10 zł",
-  imageUrl: null
+  imageUrl: null,
 });
 
 test("counts new listings and removes entries missing from consecutive checks", () => {
@@ -26,16 +26,22 @@ test("counts new listings and removes entries missing from consecutive checks", 
     assert.equal(store.saveCheck(monitor, [offer("offer:111111"), offer("offer:222222")]).length, 1);
     assert.equal(store.getMonitor(id)?.newListingsCount, 1);
     assert.equal(store.getMonitor(id)?.lastCheckNewCount, 1);
-    assert.equal(store.recentListings().find(item => item.externalId === "offer:222222")?.fromLatestCheck, 1);
-    assert.equal(store.recentListings().find(item => item.externalId === "offer:111111")?.fromLatestCheck, 0);
+    assert.equal(store.recentListings().find((item) => item.externalId === "offer:222222")?.fromLatestCheck, 1);
+    assert.equal(store.recentListings().find((item) => item.externalId === "offer:111111")?.fromLatestCheck, 0);
 
     monitor = store.getMonitor(id)!;
     store.saveCheck(monitor, [offer("offer:111111")]);
     assert.equal(store.getMonitor(id)?.lastCheckNewCount, 0);
-    assert.equal(store.recentListings().some(item => item.fromLatestCheck === 1), false);
+    assert.equal(
+      store.recentListings().some((item) => item.fromLatestCheck === 1),
+      false,
+    );
     monitor = store.getMonitor(id)!;
     store.saveCheck(monitor, [offer("offer:111111")]);
-    assert.equal(store.recentListings().some(item => item.externalId === "offer:222222"), false);
+    assert.equal(
+      store.recentListings().some((item) => item.externalId === "offer:222222"),
+      false,
+    );
   } finally {
     store.close();
     fs.rmSync(directory, { recursive: true });
@@ -133,7 +139,11 @@ test("delivers new-offer events independently of which extension checked the mon
     assert.deepEqual(store.pullNotifications(quietClient), []);
     assert.equal(store.pullNotifications(notifiedClient)[0]?.externalId, "offer:222222");
     store.setNotificationsForClient(monitorId, quietClient, true);
-    store.saveCheck(store.getMonitor(monitorId)!, [offer("offer:111111"), offer("offer:222222"), offer("offer:333333")]);
+    store.saveCheck(store.getMonitor(monitorId)!, [
+      offer("offer:111111"),
+      offer("offer:222222"),
+      offer("offer:333333"),
+    ]);
     assert.equal(store.pullNotifications(quietClient)[0]?.externalId, "offer:333333");
     assert.equal(store.pullNotifications(notifiedClient)[0]?.externalId, "offer:333333");
   } finally {

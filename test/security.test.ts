@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { credentialFingerprint, expiredSessionCookie, isSameOriginRequest, safeCredentialsEqual,
-  sessionCookie, sessionTokenFromCookie, tokenHash } from "../src/security.js";
+import {
+  credentialFingerprint,
+  expiredSessionCookie,
+  isSameOriginRequest,
+  safeCredentialsEqual,
+  sessionCookie,
+  sessionTokenFromCookie,
+  tokenHash,
+} from "../src/security.js";
 
 test("accepts browser mutations explicitly marked as same-origin", () => {
-  assert.equal(isSameOriginRequest({
-    "sec-fetch-site": "same-origin",
-    origin: "https://allegro-monitor.kcn333.com",
-    host: "app:3000"
-  }), true);
+  assert.equal(
+    isSameOriginRequest({
+      "sec-fetch-site": "same-origin",
+      origin: "https://allegro-monitor.kcn333.com",
+      host: "app:3000",
+    }),
+    true,
+  );
 });
 
 test("rejects cross-site and same-site mutations", () => {
@@ -17,15 +27,21 @@ test("rejects cross-site and same-site mutations", () => {
 });
 
 test("uses the forwarded public host when Fetch Metadata is unavailable", () => {
-  assert.equal(isSameOriginRequest({
-    origin: "https://allegro-monitor.kcn333.com",
-    host: "app:3000",
-    "x-forwarded-host": "allegro-monitor.kcn333.com"
-  }), true);
-  assert.equal(isSameOriginRequest({
-    origin: "https://attacker.example",
-    "x-forwarded-host": "allegro-monitor.kcn333.com"
-  }), false);
+  assert.equal(
+    isSameOriginRequest({
+      origin: "https://allegro-monitor.kcn333.com",
+      host: "app:3000",
+      "x-forwarded-host": "allegro-monitor.kcn333.com",
+    }),
+    true,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      origin: "https://attacker.example",
+      "x-forwarded-host": "allegro-monitor.kcn333.com",
+    }),
+    false,
+  );
 });
 
 test("reads only a well-formed session token from cookies", () => {
@@ -79,5 +95,8 @@ test("distinguishes credential field boundaries containing NUL", () => {
 
 test("binds sessions to current credentials", () => {
   assert.equal(tokenHash("token"), tokenHash("token"));
-  assert.notEqual(credentialFingerprint("wiola", "sekret", "signing-secret"), credentialFingerprint("wiola", "nowe", "signing-secret"));
+  assert.notEqual(
+    credentialFingerprint("wiola", "sekret", "signing-secret"),
+    credentialFingerprint("wiola", "nowe", "signing-secret"),
+  );
 });

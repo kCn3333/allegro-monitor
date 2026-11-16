@@ -20,13 +20,28 @@ test("renders the personalized login panel and remember-me control", () => {
   assert.match(renderLogin(true), /Nieprawidłowa nazwa/);
 });
 
-test("only allowlisted branding and script assets load before login with correct MIME", async t => {
+test("only allowlisted branding and script assets load before login with correct MIME", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-branding-"));
-  const app = await buildApp({ startWorker: false, config: { ...config, databasePath: path.join(dir, "db.sqlite"),
-    username: "test", password: "password", publicUrl: "", telegramBotToken: "" } });
-  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  for (const [url, file, type] of [["/assets/logo.png", "logo.png", "image/png"],
-    ["/favicon.ico", "favicon.ico", "image/x-icon"], ["/apple-touch-icon.png", "apple-touch-icon.png", "image/png"]] as const) {
+  const app = await buildApp({
+    startWorker: false,
+    config: {
+      ...config,
+      databasePath: path.join(dir, "db.sqlite"),
+      username: "test",
+      password: "password",
+      publicUrl: "",
+      telegramBotToken: "",
+    },
+  });
+  t.after(async () => {
+    await app.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  for (const [url, file, type] of [
+    ["/assets/logo.png", "logo.png", "image/png"],
+    ["/favicon.ico", "favicon.ico", "image/x-icon"],
+    ["/apple-touch-icon.png", "apple-touch-icon.png", "image/png"],
+  ] as const) {
     const response = await app.inject(url);
     assert.equal(response.statusCode, 200);
     assert.equal(response.headers["content-type"], type);
@@ -43,10 +58,23 @@ test("only allowlisted branding and script assets load before login with correct
     assert.equal((await app.inject({ method: "HEAD", url })).statusCode, 200);
     assert.equal((await app.inject({ method: "POST", url })).headers.location, "/login");
   }
-  for (const url of ["/", "/devices", "/extension", "/faq", "/extension/download", "/assets/package.json", "/assets/logo-source.png", "/assets/../package.json", "/assets/%2e%2e%2fpackage.json", "/assets/panel.js.map", "/assets/unknown.js"]) {
+  for (const url of [
+    "/",
+    "/devices",
+    "/extension",
+    "/faq",
+    "/extension/download",
+    "/assets/package.json",
+    "/assets/logo-source.png",
+    "/assets/../package.json",
+    "/assets/%2e%2e%2fpackage.json",
+    "/assets/panel.js.map",
+    "/assets/unknown.js",
+  ]) {
     assert.equal((await app.inject(url)).headers.location, "/login");
   }
   assert.equal((await app.inject({ method: "POST", url: "/assets/logo.png" })).headers.location, "/login");
-  const expectedCsp = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  const expectedCsp =
+    "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
   assert.equal((await app.inject("/login")).headers["content-security-policy"], expectedCsp);
 });
