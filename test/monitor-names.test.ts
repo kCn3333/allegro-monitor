@@ -200,6 +200,20 @@ test("monitor creation keeps bearer authentication and interval validation, whil
       401,
     );
   }
+  for (const invalidUrl of ["not a URL", "http://allegro.pl/listing?string=book"]) {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/extension/monitors",
+      headers: { authorization: "Bearer second-token" },
+      payload: { name: "Valid", url: invalidUrl, intervalMinutes: 5 },
+    });
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      response.body,
+      invalidUrl === "not a URL" ? "Invalid URL" : "Dozwolone są wyłącznie adresy HTTPS w domenie allegro.pl",
+    );
+    assert.deepEqual(snapshot(), before);
+  }
   for (const intervalMinutes of [0, 2, 10, 61]) {
     assert.equal(
       (
@@ -237,4 +251,114 @@ test("monitor creation keeps bearer authentication and interval validation, whil
     );
   }
   assert.deepEqual(snapshot(), before);
+});
+
+test("monitor API routes require Bearer and preserve endpoint-specific ID and access errors", async (t) => {
+  const { app, id, cookie, snapshot } = await fixture(t);
+  const before = snapshot();
+  for (const [action, payload, missingMessage] of [
+    ["results", { listings: [] }, "Monitor nie istnieje lub jest wyłączony"],
+    ["error", { message: "failed" }, "Monitor nie istnieje lub nie należy do tego rozszerzenia"],
+    ["notification-state", { enabled: false }, "Monitor nie istnieje"],
+  ] as const) {
+    for (const headers of [{}, { cookie }, { authorization: "Bearer invalid" }]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/extension/monitors/${id}/${action}`,
+        headers,
+        payload,
+      });
+      assert.equal(response.statusCode, 401);
+      assert.deepEqual(response.json(), { error: "Nieprawidłowy token rozszerzenia" });
+      assert.deepEqual(snapshot(), before);
+    }
+    for (const invalidId of ["0", "invalid", "9007199254740992", "99999"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/extension/monitors/${invalidId}/${action}`,
+        headers: { authorization: "Bearer first-token" },
+        payload,
+      });
+      assert.equal(response.statusCode, invalidId === "99999" ? 404 : 400);
+      assert.equal(
+        response.body,
+        invalidId === "99999"
+          ? missingMessage
+          : action === "notification-state"
+            ? "Nieprawidłowy stan monitora"
+            : "Nieprawidłowy identyfikator monitora",
+      );
+      assert.deepEqual(snapshot(), before);
+    }
+  }
+});
+
+test("results renew presence and clear a closed-tab error before rejecting invalid listings", async (t) => {
+  const { app, store, id } = await fixture(t);
+  store.saveError(store.getMonitor(id)!, new Error("Karta monitora jest zamknięta"));
+  const before = store.getMonitor(id)!;
+  assert.equal(store.listMonitors()[0]!.activeClientsCount, 0);
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/extension/monitors/${id}/results`,
+    headers: { authorization: "Bearer first-token" },
+    payload: { listings: {} },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body, "Nieprawidłowa lista ofert");
+  assert.equal(store.listMonitors()[0]!.activeClientsCount, 1);
+  assert.deepEqual({ ...store.getMonitor(id) }, { ...before, lastError: null });
+  assert.deepEqual(store.recentListings(), []);
+  assert.equal(store.claimTelegramJob(), undefined);
+});
+
+test("notification state links an unlinked client, while errors accept paused monitors and preserve message conversion", async (t) => {
+  const { app, store, id, first, second, snapshot } = await fixture(t);
+  const post = (action: string, payload: object) =>
+    app.inject({
+      method: "POST",
+      url: `/api/extension/monitors/${id}/${action}`,
+      headers: { authorization: "Bearer second-token" },
+      payload,
+    });
+  const before = snapshot();
+  for (const action of ["results", "error"]) {
+    const response = await post(action, { listings: [], message: "failed" });
+    assert.equal(response.statusCode, 404);
+    assert.equal(
+      response.body,
+      action === "results"
+        ? "Monitor nie istnieje lub jest wyłączony"
+        : "Monitor nie istnieje lub nie należy do tego rozszerzenia",
+    );
+    assert.deepEqual(snapshot(), before);
+  }
+  for (const enabled of [undefined, null, 0, "false", [], {}]) {
+    const response = await post("notification-state", { enabled });
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body, "Nieprawidłowy stan monitora");
+    assert.deepEqual(snapshot(), before);
+  }
+  const state = await post("notification-state", { enabled: true });
+  assert.equal(state.statusCode, 200);
+  assert.deepEqual(state.json(), { enabled: true });
+  assert.equal(store.hasMonitorClient(id, second), true);
+  assert.equal(store.areNotificationsEnabledForClient(id, second), true);
+  assert.equal(store.areNotificationsEnabledForClient(id, first), false);
+  store.toggleMonitor(id);
+  assert.equal((await post("results", { listings: [] })).statusCode, 404);
+  const links = snapshot()[1];
+  for (const [message, expected] of [
+    [undefined, "Nieznany błąd rozszerzenia"],
+    [0, "Nieznany błąd rozszerzenia"],
+    [123, "123"],
+    ["x".repeat(1001), "x".repeat(1000)],
+  ] as const) {
+    const response = await post("error", { message });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { saved: true });
+    assert.equal(store.getMonitor(id)!.lastError, expected);
+    assert.equal(store.getMonitor(id)!.lastCheckNewCount, 0);
+    assert.deepEqual(snapshot()[1], links);
+  }
 });
