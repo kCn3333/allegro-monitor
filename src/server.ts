@@ -9,7 +9,6 @@ import { Store } from "./database.js";
 import { renderDevices } from "./devices.js";
 import { renderExtension } from "./extension-page.js";
 import type { DeviceInfo } from "./types.js";
-import { renderFaq } from "./faq.js";
 import { TelegramWorker } from "./notifications.js";
 import {
   credentialFingerprint,
@@ -18,9 +17,9 @@ import {
   sessionTokenFromCookie,
   tokenHash,
 } from "./security.js";
-import { renderPage } from "./ui.js";
 import { assertAllegroUrl, validateListings } from "./validation.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerPanelRoutes } from "./routes/panel.js";
 
 export async function buildApp(options: { now?: () => number; startWorker?: boolean; config?: typeof config } = {}) {
   const settings = options.config || config;
@@ -157,11 +156,7 @@ export async function buildApp(options: { now?: () => number; startWorker?: bool
     allowAttempt,
     pruneAttempts,
   });
-  app.get("/", async (_request, reply) =>
-    reply
-      .type("text/html; charset=utf-8")
-      .send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions())),
-  );
+  registerPanelRoutes(app, { store, parseMonitorId });
   app.post("/devices/revoke-all", async (_request, reply) => {
     store.revokeAllExtensionClients();
     pairingCodes.clear();
@@ -181,7 +176,6 @@ export async function buildApp(options: { now?: () => number; startWorker?: bool
     if (!store.renameExtensionClient(id, name)) return reply.code(404).send("Urządzenie nie istnieje");
     return reply.redirect("/devices");
   });
-  app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
 
   app.get("/devices", async (_request, reply) =>
     reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())),
@@ -398,50 +392,6 @@ export async function buildApp(options: { now?: () => number; startWorker?: bool
       return reply.send({ enabled: request.body.enabled });
     },
   );
-
-  app.post<{ Params: { id: string }; Body: { externalId?: string } }>(
-    "/monitors/:id/exclusions",
-    async (request, reply) => {
-      const id = parseMonitorId(request.params.id);
-      const externalId = String(request.body?.externalId || "").slice(0, 200);
-      if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
-      if (!store.addExclusion(id, externalId)) return reply.code(404).send("Pozycja nie istnieje w tym monitorze");
-      return reply.redirect("/");
-    },
-  );
-
-  app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/monitors/:id/rename", async (request, reply) => {
-    const id = parseMonitorId(request.params.id);
-    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-    if (!id || !name || name.length > 100 || !store.getMonitor(id))
-      return reply.code(400).send("Nieprawidłowa nazwa monitora");
-    store.renameMonitor(id, name);
-    return reply.redirect("/");
-  });
-
-  app.post<{ Params: { id: string }; Body: { externalId?: string } }>(
-    "/monitors/:id/exclusions/remove",
-    async (request, reply) => {
-      const id = parseMonitorId(request.params.id);
-      const externalId = String(request.body?.externalId || "").slice(0, 200);
-      if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
-      store.removeExclusion(id, externalId);
-      return reply.redirect("/");
-    },
-  );
-
-  app.post<{ Params: { id: string } }>("/monitors/:id/toggle", async (request, reply) => {
-    const id = parseMonitorId(request.params.id);
-    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-    store.toggleMonitor(id);
-    return reply.redirect("/");
-  });
-  app.post<{ Params: { id: string } }>("/monitors/:id/delete", async (request, reply) => {
-    const id = parseMonitorId(request.params.id);
-    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-    store.deleteMonitor(id);
-    return reply.redirect("/");
-  });
 
   return app;
 }
