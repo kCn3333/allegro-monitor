@@ -59,31 +59,66 @@ test("identical timestamps across baseline, multiple cycles and restart label on
   db.close();
 });
 
-test("failed transaction rolls cycle and labels back together with counters, events and jobs; retry uses next cycle", (t) => {
+for (const target of ["notification_events", "telegram_jobs"]) {
+  test(`failed ${target} insert rolls back the whole check after partial event/job writes; retry uses next cycle`, (t) => {
+    const file = fixture(t);
+    const store = new Store(file, undefined, now);
+    t.after(() => store.close());
+    const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
+    store.saveCheck(store.getMonitor(id)!, [listing("A")]);
+    store.saveCheck(store.getMonitor(id)!, [listing("A"), listing("B")], ["1"]);
+    const db = new DatabaseSync(file);
+    t.after(() => db.close());
+    const snapshot = () =>
+      ["monitors", "listings", "notification_events", "telegram_jobs", "sqlite_sequence"].map((table) =>
+        db.prepare(`SELECT * FROM ${table}`).all(),
+      );
+    const before = snapshot();
+    const condition =
+      target === "notification_events"
+        ? "NEW.external_id='D'"
+        : "NEW.chat_id='2' AND json_extract(NEW.payload,'$.listing.externalId')='D'";
+    db.exec(
+      `CREATE TRIGGER reject_check BEFORE INSERT ON ${target} WHEN ${condition} BEGIN SELECT RAISE(ABORT,'test rollback'); END`,
+    );
+    const input = [{ ...listing("A"), title: "changed" }, listing("B"), listing("C"), listing("D")];
+    assert.throws(() => store.saveCheck(store.getMonitor(id)!, input, ["1", "2", "1"]), /test rollback/);
+    assert.deepEqual(snapshot(), before);
+    assert.deepEqual(labels(store), { A: 0, B: 1 });
+    db.exec("DROP TRIGGER reject_check");
+    assert.deepEqual(
+      store.saveCheck(store.getMonitor(id)!, input, ["1", "2", "1"]).map((item) => item.externalId),
+      ["C", "D"],
+    );
+    assert.deepEqual(labels(store), { A: 0, B: 0, C: 1, D: 1 });
+    assert.equal((db.prepare("SELECT check_cycle n FROM monitors").get() as { n: number }).n, 3);
+    assert.equal(store.getMonitor(id)!.newListingsCount, 3);
+    assert.equal(store.getMonitor(id)!.lastCheckNewCount, 2);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM notification_events").get()!.n, 3);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM telegram_jobs").get()!.n, 5);
+  });
+}
+
+test("failed exclusion insertion leaves data unchanged and permits a successful retry", (t) => {
   const file = fixture(t);
   const store = new Store(file, undefined, now);
   t.after(() => store.close());
   const id = store.createMonitor("test", "https://allegro.pl/listing?string=test", 5);
   store.saveCheck(store.getMonitor(id)!, [listing("A")]);
-  store.saveCheck(store.getMonitor(id)!, [listing("A"), listing("B")], ["1"]);
   const db = new DatabaseSync(file);
   t.after(() => db.close());
   const snapshot = () =>
-    ["monitors", "listings", "notification_events", "telegram_jobs"].map((table) =>
-      db.prepare(`SELECT * FROM ${table}`).all(),
-    );
+    ["monitors", "listings", "monitor_exclusions"].map((table) => db.prepare(`SELECT * FROM ${table}`).all());
   const before = snapshot();
-  db.exec("CREATE TRIGGER reject_job BEFORE INSERT ON telegram_jobs BEGIN SELECT RAISE(ABORT,'test rollback'); END");
-  assert.throws(
-    () => store.saveCheck(store.getMonitor(id)!, [listing("A"), listing("B"), listing("C")], ["1"]),
-    /test rollback/,
+  db.exec(
+    "CREATE TRIGGER reject_exclusion AFTER INSERT ON monitor_exclusions BEGIN SELECT RAISE(ABORT,'exclusion rollback'); END",
   );
+  assert.throws(() => store.addExclusion(id, "A"), /exclusion rollback/);
   assert.deepEqual(snapshot(), before);
-  assert.deepEqual(labels(store), { A: 0, B: 1 });
-  db.exec("DROP TRIGGER reject_job");
-  store.saveCheck(store.getMonitor(id)!, [listing("A"), listing("B"), listing("C")], ["1"]);
-  assert.deepEqual(labels(store), { A: 0, B: 0, C: 1 });
-  assert.equal((db.prepare("SELECT check_cycle n FROM monitors").get() as { n: number }).n, 3);
+  db.exec("DROP TRIGGER reject_exclusion");
+  assert.equal(store.addExclusion(id, "A"), true);
+  assert.equal(store.listExclusions().length, 1);
+  assert.equal(store.getMonitor(id)!.currentListingsCount, 0);
 });
 
 test("PR #2 migration clears only ambiguous labels and preserves all existing rows across restarts", (t) => {
