@@ -46,12 +46,4 @@ Allegro Monitor śledzi nowe oferty w zapisanych wyszukiwaniach Allegro. Rozszer
 | `APP_PORT`, `BIND_ADDRESS` | Ustawienia Compose: port (`3000`) i interfejs hosta (`0.0.0.0`). Udostępniaj port tylko proxy lub tunelowi. |
 | `IMAGE_TAG` | Tag obrazu GHCR: domyślnie `latest`; pełny SHA opublikowanego commita pozwala wybrać konkretną wersję. |
 
-W `TRUST_PROXY` wpisuj rzeczywiste adresy infrastruktury widoczne z aplikacji. Proxy musi prawidłowo przekazywać `X-Forwarded-*`, bez możliwości narzucenia adresu klienta przez użytkownika. Bez tego ustawienia klienci za proxy współdzielą limity logowania i parowania.
-
-Compose ustawia `HOST=0.0.0.0`, `PORT` z `APP_PORT` i `DATABASE_PATH=/app/data/monitor.sqlite`. Wpisy `HOST`, `PORT` i `DATABASE_PATH` w `.env` nie zmieniają tych ustawień. Dane pozostają w wolumenie `allegro-monitor-data`.
-
-`EXTENSION_DIRECTORY` wskazuje katalog szablonu rozszerzenia (domyślnie `./extension`). Compose nie przekazuje tej zmiennej; obraz używa `/app/extension`. Zmiana `APP_PUBLIC_URL` wymaga restartu backendu, pobrania nowej paczki i ponownego parowania.
-
-Aktualizacje wykonuj ręcznie w Portainerze: wybierz `IMAGE_TAG`, pobierz obraz ponownie i zaktualizuj stos po wykonaniu kopii danych. Szczegóły: [backup i odtwarzanie](docs/operations.md).
-
-[Praca nad kodem](docs/development.md) · [Historia zmian](CHANGELOG.md) · [Licencja MIT](LICENSE) · [Licencja ikon](THIRD_PARTY_NOTICES.md)
+[Historia zmian](CHANGELOG.md) · [Licencja MIT](LICENSE) · [Licencja ikon](THIRD_PARTY_NOTICES.md)
