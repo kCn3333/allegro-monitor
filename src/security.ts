@@ -15,9 +15,15 @@ export function isSameOriginRequest(headers: OriginHeaders): boolean {
   if (fetchSite === "same-origin" || fetchSite === "none") return true;
   if (!headers.origin) return true;
   const rawForwardedHost = headers["x-forwarded-host"];
-  const forwardedHost = String(Array.isArray(rawForwardedHost) ? rawForwardedHost[0] : rawForwardedHost || "").split(",", 1)[0]?.trim();
+  const forwardedHost = String(Array.isArray(rawForwardedHost) ? rawForwardedHost[0] : rawForwardedHost || "")
+    .split(",", 1)[0]
+    ?.trim();
   const expectedHost = forwardedHost || headers.host;
-  try { return Boolean(expectedHost) && new URL(headers.origin).host === expectedHost; } catch { return false; }
+  try {
+    return Boolean(expectedHost) && new URL(headers.origin).host === expectedHost;
+  } catch {
+    return false;
+  }
 }
 
 export const SESSION_COOKIE = "allegro_monitor_session";
@@ -30,9 +36,20 @@ export function credentialFingerprint(username: string, password: string, secret
   return crypto.createHmac("sha256", secret).update(username).update("\0").update(password).digest("hex");
 }
 
-export function safeCredentialsEqual(actualUsername: string, actualPassword: string, username: string, password: string): boolean {
-  const actual = crypto.createHmac("sha256", credentialComparisonKey).update(JSON.stringify([actualUsername, actualPassword])).digest();
-  const expected = crypto.createHmac("sha256", credentialComparisonKey).update(JSON.stringify([username, password])).digest();
+export function safeCredentialsEqual(
+  actualUsername: string,
+  actualPassword: string,
+  username: string,
+  password: string,
+): boolean {
+  const actual = crypto
+    .createHmac("sha256", credentialComparisonKey)
+    .update(JSON.stringify([actualUsername, actualPassword]))
+    .digest();
+  const expected = crypto
+    .createHmac("sha256", credentialComparisonKey)
+    .update(JSON.stringify([username, password]))
+    .digest();
   return crypto.timingSafeEqual(actual, expected);
 }
 

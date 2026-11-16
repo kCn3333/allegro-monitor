@@ -2,28 +2,98 @@ import { renderLayout } from "./layout.js";
 
 export function renderFaq(): string {
   const items = [
-    ["Do czego służy aplikacja?", "Allegro Monitor obserwuje wskazane wyniki wyszukiwania w otwartych kartach Vivaldi, wykrywa nowe pozycje, pokazuje je w panelu i wysyła powiadomienia."],
-    ["Czy Vivaldi i monitorowana karta muszą być otwarte?", "Tak. Sprawdzanie odbywa się w prawdziwej karcie przeglądarki, dlatego Vivaldi musi działać, komputer nie może być uśpiony, a karta wyszukiwania musi pozostać otwarta. Nie musi być aktywna ani widoczna na ekranie."],
-    ["Co oznaczają statusy monitora?", "„Aktywne” oznacza, że przynajmniej jedno sparowane urządzenie ma otwartą właściwą kartę. „Brak otwartej karty” oznacza brak aktywnego urządzenia. „Wymaga uwagi” sygnalizuje błąd odczytu, blokadę lub captcha. „Wstrzymany” oznacza ręczne wyłączenie w panelu."],
-    ["Jak szybko wykrywane jest zamknięcie karty?", "Rozszerzenie reaguje na otwarcie i zamknięcie karty niemal natychmiast, a dodatkowo potwierdza jej stan co minutę. Jeśli przeglądarka lub komputer nagle się wyłączy, status zaktualizuje się po około trzech minutach."],
-    ["Co się dzieje, gdy kilka osób obserwuje ten sam adres?", "Każde sparowane rozszerzenie raportuje obecność osobno. Monitor pozostaje aktywny, dopóki przynajmniej jedna osoba ma otwartą właściwą kartę. Zamknięcie lub odłączenie karty przez jedną osobę nie zatrzymuje monitora działającego u drugiej."],
-    ["Dlaczego pierwsze sprawdzenie nie wysyła powiadomień?", "Pierwszy odczyt tworzy punkt odniesienia. Wszystkie widoczne wtedy pozycje są traktowane jako stan początkowy, dzięki czemu instalacja nie generuje dziesiątek fałszywych alertów."],
-    ["Co oznacza +N?", "Plakietka przy monitorze pokazuje liczbę nowych pozycji wykrytych wyłącznie w ostatnim udanym sprawdzeniu. Po kolejnym sprawdzeniu bez nowości znika. Osobna statystyka „Wykryte nowości” pozostaje łącznym wynikiem od utworzenia punktu odniesienia."],
-    ["Które oferty są subtelnie wyróżnione?", "Zielone oznaczenie „Nowa” otrzymują tylko pozycje wykryte jako nowe podczas ostatniego udanego sprawdzenia danego monitora. Wyróżnienie znika po następnym sprawdzeniu bez nowych pozycji."],
-    ["Jak działają interwały?", "Dostępne są interwały 1, 5, 15, 30 i 60 minut. Jedna minuta jest przydatna do testów, ale częste przeładowania zwiększają ryzyko captcha lub blokady Allegro. Do zwykłej pracy rozsądniejsze jest 5–15 minut."],
-    ["Co się stanie po captcha lub blokadzie Allegro?", "Rozszerzenie nie omija zabezpieczeń. Zgłasza problem, pokazuje powiadomienie i pozostawia kartę do ręcznego potwierdzenia. Po rozwiązaniu captcha kolejne sprawdzenie może wrócić do normalnej pracy."],
-    ["Jak działają dokładne wykluczenia?", "Wykluczenie używa pełnego identyfikatora produktu lub oferty Allegro, a nie luźnego fragmentu tytułu. Ukrywa więc dokładne wydanie albo pojedynczą ofertę i nie powinno wykluczyć innej poszukiwanej książki. Regułę można cofnąć na karcie monitora bez wywołania fałszywego alertu."],
-    ["Jak korzystać z powiadomień Telegram?", "Użytkownik musi najpierw otworzyć rozmowę z botem i wysłać mu wiadomość, na przykład /start. W przypadku wspólnego czatu bot musi zostać dodany do grupy. Nie musi być jej administratorem."],
-    ["Ile nieudanych prób logowania blokuje dostęp?", "Aplikacja dopuszcza 20 błędnych prób logowania z danego źródła w ciągu 15 minut, licząc od pierwszej próby. Po 20 błędach kolejne próby, również z poprawnym hasłem, są blokowane do końca tego okresu. Użytkownicy za wspólnym serwerem pośredniczącym współdzielą limit. Aktywne sesje pozostają ważne."],
-    ["Jak zabezpieczone jest parowanie rozszerzenia?", "Kod parowania jest losowy, jednorazowy i ważny 10 minut. Dopuszczalne jest 12 prób w ciągu 15 minut z danego źródła; kolejne próby są czasowo odrzucane. Udane parowanie zeruje licznik prób."],
-    ["Czy monitory synchronizują się między urządzeniami?", "Tak. Serwer i panel WWW są źródłem wspólnej listy. Dodanie monitora, zmiana nazwy, wstrzymanie lub usunięcie pojawi się na pozostałych urządzeniach zwykle w ciągu minuty. Przycisk „Odśwież” pobiera listę od razu, również dla monitorów dodanych przed sparowaniem rozszerzenia."],
-    ["Co się stanie, gdy druga osoba zamknie kartę?", "Rozszerzenie zgłosi zamknięcie karty. Monitor pozostanie aktywny, jeśli właściwa karta jest nadal otwarta na innym urządzeniu. Sam monitor nie otwiera automatycznie kart na pozostałych komputerach — służy do tego przycisk „Otwórz kartę”."],
-    ["Czy sprawdzanie i powiadomienia są niezależne?", "Tak. Każda otwarta karta może dostarczać wyniki na serwer niezależnie od ustawienia powiadomień. Opcja „Wyłącz powiadomienia” wycisza tylko to urządzenie; nie zatrzymuje jego karty ani powiadomień na innych urządzeniach. Dzięki temu ofertę wykrytą na jednym komputerze może zgłosić rozszerzenie na drugim."],
-    ["Jak sprawdzić wersję rozszerzenia?", "Numer i informacja o aktualności znajdują się w zakładce „Monitor”. Rozszerzenie porównuje swoją wersję z paczką udostępnianą przez serwer."],
-    ["Gdzie można usunąć monitor?", "Wyłącznie w panelu WWW. Usunięcie kasuje wspólny monitor, jego historię i wykluczenia, a następna synchronizacja usuwa go z rozszerzeń."],
-    ["Jak odłączyć urządzenie?", "W panelu, w sekcji Sparowane urządzenia, wybierz Odłącz urządzenie lub Odłącz wszystkie urządzenia. Dostęp zostaje cofnięty bez usuwania monitorów i historii. Odłączenie wszystkich urządzeń unieważnia również oczekujące kody parowania. Ponowne połączenie wymaga nowego kodu. Zmiana hasła panelu nie odłącza rozszerzeń."],
-    ["Jak aktualizować rozszerzenie?", "Po wydaniu nowej wersji pobierz ponownie ZIP, nadpisz dotychczasowy katalog rozszerzenia i kliknij „Przeładuj” na vivaldi://extensions. Ponowne parowanie zwykle nie jest potrzebne."],
-    ["Jakie dane są przekazywane przez rozszerzenie?", "Rozszerzenie przekazuje adres monitorowanego wyszukiwania oraz podstawowe informacje o znalezionych produktach: identyfikator, tytuł, URL, cenę i miniaturę. Przesyła również wersję rozszerzenia, system i architekturę oraz dostępne dane o wersji systemu i przeglądarki. Serwer rejestruje czas ostatniego kontaktu i pokazuje go wraz z metadanymi na stronie „Urządzenia”. Cookies, dane logowania i pozostała historia przeglądania nie są wysyłane."],
+    [
+      "Do czego służy aplikacja?",
+      "Allegro Monitor obserwuje wskazane wyniki wyszukiwania w otwartych kartach Vivaldi, wykrywa nowe pozycje, pokazuje je w panelu i wysyła powiadomienia.",
+    ],
+    [
+      "Czy Vivaldi i monitorowana karta muszą być otwarte?",
+      "Tak. Sprawdzanie odbywa się w prawdziwej karcie przeglądarki, dlatego Vivaldi musi działać, komputer nie może być uśpiony, a karta wyszukiwania musi pozostać otwarta. Nie musi być aktywna ani widoczna na ekranie.",
+    ],
+    [
+      "Co oznaczają statusy monitora?",
+      "„Aktywne” oznacza, że przynajmniej jedno sparowane urządzenie ma otwartą właściwą kartę. „Brak otwartej karty” oznacza brak aktywnego urządzenia. „Wymaga uwagi” sygnalizuje błąd odczytu, blokadę lub captcha. „Wstrzymany” oznacza ręczne wyłączenie w panelu.",
+    ],
+    [
+      "Jak szybko wykrywane jest zamknięcie karty?",
+      "Rozszerzenie reaguje na otwarcie i zamknięcie karty niemal natychmiast, a dodatkowo potwierdza jej stan co minutę. Jeśli przeglądarka lub komputer nagle się wyłączy, status zaktualizuje się po około trzech minutach.",
+    ],
+    [
+      "Co się dzieje, gdy kilka osób obserwuje ten sam adres?",
+      "Każde sparowane rozszerzenie raportuje obecność osobno. Monitor pozostaje aktywny, dopóki przynajmniej jedna osoba ma otwartą właściwą kartę. Zamknięcie lub odłączenie karty przez jedną osobę nie zatrzymuje monitora działającego u drugiej.",
+    ],
+    [
+      "Dlaczego pierwsze sprawdzenie nie wysyła powiadomień?",
+      "Pierwszy odczyt tworzy punkt odniesienia. Wszystkie widoczne wtedy pozycje są traktowane jako stan początkowy, dzięki czemu instalacja nie generuje dziesiątek fałszywych alertów.",
+    ],
+    [
+      "Co oznacza +N?",
+      "Plakietka przy monitorze pokazuje liczbę nowych pozycji wykrytych wyłącznie w ostatnim udanym sprawdzeniu. Po kolejnym sprawdzeniu bez nowości znika. Osobna statystyka „Wykryte nowości” pozostaje łącznym wynikiem od utworzenia punktu odniesienia.",
+    ],
+    [
+      "Które oferty są subtelnie wyróżnione?",
+      "Zielone oznaczenie „Nowa” otrzymują tylko pozycje wykryte jako nowe podczas ostatniego udanego sprawdzenia danego monitora. Wyróżnienie znika po następnym sprawdzeniu bez nowych pozycji.",
+    ],
+    [
+      "Jak działają interwały?",
+      "Dostępne są interwały 1, 5, 15, 30 i 60 minut. Jedna minuta jest przydatna do testów, ale częste przeładowania zwiększają ryzyko captcha lub blokady Allegro. Do zwykłej pracy rozsądniejsze jest 5–15 minut.",
+    ],
+    [
+      "Co się stanie po captcha lub blokadzie Allegro?",
+      "Rozszerzenie nie omija zabezpieczeń. Zgłasza problem, pokazuje powiadomienie i pozostawia kartę do ręcznego potwierdzenia. Po rozwiązaniu captcha kolejne sprawdzenie może wrócić do normalnej pracy.",
+    ],
+    [
+      "Jak działają dokładne wykluczenia?",
+      "Wykluczenie używa pełnego identyfikatora produktu lub oferty Allegro, a nie luźnego fragmentu tytułu. Ukrywa więc dokładne wydanie albo pojedynczą ofertę i nie powinno wykluczyć innej poszukiwanej książki. Regułę można cofnąć na karcie monitora bez wywołania fałszywego alertu.",
+    ],
+    [
+      "Jak korzystać z powiadomień Telegram?",
+      "Użytkownik musi najpierw otworzyć rozmowę z botem i wysłać mu wiadomość, na przykład /start. W przypadku wspólnego czatu bot musi zostać dodany do grupy. Nie musi być jej administratorem.",
+    ],
+    [
+      "Ile nieudanych prób logowania blokuje dostęp?",
+      "Aplikacja dopuszcza 20 błędnych prób logowania z danego źródła w ciągu 15 minut, licząc od pierwszej próby. Po 20 błędach kolejne próby, również z poprawnym hasłem, są blokowane do końca tego okresu. Użytkownicy za wspólnym serwerem pośredniczącym współdzielą limit. Aktywne sesje pozostają ważne.",
+    ],
+    [
+      "Jak zabezpieczone jest parowanie rozszerzenia?",
+      "Kod parowania jest losowy, jednorazowy i ważny 10 minut. Dopuszczalne jest 12 prób w ciągu 15 minut z danego źródła; kolejne próby są czasowo odrzucane. Udane parowanie zeruje licznik prób.",
+    ],
+    [
+      "Czy monitory synchronizują się między urządzeniami?",
+      "Tak. Serwer i panel WWW są źródłem wspólnej listy. Dodanie monitora, zmiana nazwy, wstrzymanie lub usunięcie pojawi się na pozostałych urządzeniach zwykle w ciągu minuty. Przycisk „Odśwież” pobiera listę od razu, również dla monitorów dodanych przed sparowaniem rozszerzenia.",
+    ],
+    [
+      "Co się stanie, gdy druga osoba zamknie kartę?",
+      "Rozszerzenie zgłosi zamknięcie karty. Monitor pozostanie aktywny, jeśli właściwa karta jest nadal otwarta na innym urządzeniu. Sam monitor nie otwiera automatycznie kart na pozostałych komputerach — służy do tego przycisk „Otwórz kartę”.",
+    ],
+    [
+      "Czy sprawdzanie i powiadomienia są niezależne?",
+      "Tak. Każda otwarta karta może dostarczać wyniki na serwer niezależnie od ustawienia powiadomień. Opcja „Wyłącz powiadomienia” wycisza tylko to urządzenie; nie zatrzymuje jego karty ani powiadomień na innych urządzeniach. Dzięki temu ofertę wykrytą na jednym komputerze może zgłosić rozszerzenie na drugim.",
+    ],
+    [
+      "Jak sprawdzić wersję rozszerzenia?",
+      "Numer i informacja o aktualności znajdują się w zakładce „Monitor”. Rozszerzenie porównuje swoją wersję z paczką udostępnianą przez serwer.",
+    ],
+    [
+      "Gdzie można usunąć monitor?",
+      "Wyłącznie w panelu WWW. Usunięcie kasuje wspólny monitor, jego historię i wykluczenia, a następna synchronizacja usuwa go z rozszerzeń.",
+    ],
+    [
+      "Jak odłączyć urządzenie?",
+      "W panelu, w sekcji Sparowane urządzenia, wybierz Odłącz urządzenie lub Odłącz wszystkie urządzenia. Dostęp zostaje cofnięty bez usuwania monitorów i historii. Odłączenie wszystkich urządzeń unieważnia również oczekujące kody parowania. Ponowne połączenie wymaga nowego kodu. Zmiana hasła panelu nie odłącza rozszerzeń.",
+    ],
+    [
+      "Jak aktualizować rozszerzenie?",
+      "Po wydaniu nowej wersji pobierz ponownie ZIP, nadpisz dotychczasowy katalog rozszerzenia i kliknij „Przeładuj” na vivaldi://extensions. Ponowne parowanie zwykle nie jest potrzebne.",
+    ],
+    [
+      "Jakie dane są przekazywane przez rozszerzenie?",
+      "Rozszerzenie przekazuje adres monitorowanego wyszukiwania oraz podstawowe informacje o znalezionych produktach: identyfikator, tytuł, URL, cenę i miniaturę. Przesyła również wersję rozszerzenia, system i architekturę oraz dostępne dane o wersji systemu i przeglądarki. Serwer rejestruje czas ostatniego kontaktu i pokazuje go wraz z metadanymi na stronie „Urządzenia”. Cookies, dane logowania i pozostała historia przeglądania nie są wysyłane.",
+    ],
   ];
-  return renderLayout("FAQ", `<section class="hero"><span class="eyebrow">Pomoc i wskazówki</span><h1>Najczęściej zadawane pytania</h1></section><section class="questions" aria-label="Pytania i odpowiedzi">${items.map(([question, answer]) => `<details><summary>${question}</summary><p>${answer}</p></details>`).join("")}</section>`, "/faq");
+  return renderLayout(
+    "FAQ",
+    `<section class="hero"><span class="eyebrow">Pomoc i wskazówki</span><h1>Najczęściej zadawane pytania</h1></section><section class="questions" aria-label="Pytania i odpowiedzi">${items.map(([question, answer]) => `<details><summary>${question}</summary><p>${answer}</p></details>`).join("")}</section>`,
+    "/faq",
+  );
 }

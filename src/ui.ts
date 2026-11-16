@@ -5,14 +5,27 @@ import type { Listing, Monitor, MonitorExclusion } from "./types.js";
 import { config } from "./config.js";
 import { validateImageUrl } from "./validation.js";
 
-const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-}[char]!));
+const esc = (value: unknown) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char]!,
+  );
 
 function date(value: string | null): string {
-  return value ? new Intl.DateTimeFormat("pl-PL", {
-    dateStyle: "short", timeStyle: "short", timeZone: config.timeZone
-  }).format(new Date(value)) : "Jeszcze nie sprawdzono";
+  return value
+    ? new Intl.DateTimeFormat("pl-PL", {
+        dateStyle: "short",
+        timeStyle: "short",
+        timeZone: config.timeZone,
+      }).format(new Date(value))
+    : "Jeszcze nie sprawdzono";
 }
 
 function day(value: string): string {
@@ -24,11 +37,15 @@ function queryLabel(url: string): string {
 }
 
 function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
-  const state = !monitor.enabled ? { label: "Wstrzymany", className: "paused" }
-    : monitor.activeClientsCount === 0 ? { label: "Brak otwartej karty", className: "paused" }
-      : monitor.lastError ? { label: "Wymaga uwagi", className: "failed" }
-      : monitor.initialized ? { label: "Aktywne", className: "healthy" }
-        : { label: "Pierwsze sprawdzenie", className: "waiting" };
+  const state = !monitor.enabled
+    ? { label: "Wstrzymany", className: "paused" }
+    : monitor.activeClientsCount === 0
+      ? { label: "Brak otwartej karty", className: "paused" }
+      : monitor.lastError
+        ? { label: "Wymaga uwagi", className: "failed" }
+        : monitor.initialized
+          ? { label: "Aktywne", className: "healthy" }
+          : { label: "Pierwsze sprawdzenie", className: "waiting" };
 
   return `<article class="monitor-card" data-monitor-id="${monitor.id}" data-last-check="${esc(monitor.lastCheckedAt || "")}">
     <div class="check-feedback" role="status" hidden>${icon("refresh")}Odświeżanie wyników…</div>
@@ -47,7 +64,7 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
       <div><dt>Aktywne urządzenia</dt><dd>${monitor.activeClientsCount}</dd></div>
     </dl>
     ${monitor.lastError ? `<div class="alert"><strong>Rozszerzenie zgłosiło problem</strong><span>${esc(monitor.lastError)}</span></div>` : ""}
-    ${exclusions.length ? `<details class="exclusions"><summary>Dokładne wykluczenia (${exclusions.length})</summary><div class="exclusion-items">${exclusions.map(exclusion => `<div><span>${esc(exclusion.title)}</span><form method="post" action="/monitors/${monitor.id}/exclusions/remove"><input type="hidden" name="externalId" value="${esc(exclusion.externalId)}"><button title="Przywróć tę pozycję">Przywróć</button></form></div>`).join("")}</div></details>` : ""}
+    ${exclusions.length ? `<details class="exclusions"><summary>Dokładne wykluczenia (${exclusions.length})</summary><div class="exclusion-items">${exclusions.map((exclusion) => `<div><span>${esc(exclusion.title)}</span><form method="post" action="/monitors/${monitor.id}/exclusions/remove"><input type="hidden" name="externalId" value="${esc(exclusion.externalId)}"><button title="Przywróć tę pozycję">Przywróć</button></form></div>`).join("")}</div></details>` : ""}
     <div class="card-actions">
       <a class="button subtle" href="${esc(monitor.url)}" target="_blank" rel="noreferrer">${icon("external")}Otwórz Allegro</a>
       <form method="post" action="/monitors/${monitor.id}/delete" data-confirm="Usunąć monitor wraz z historią ofert?"><button class="button danger">${icon("trash")}Usuń</button></form>
@@ -55,7 +72,9 @@ function monitorCard(monitor: Monitor, exclusions: MonitorExclusion[]): string {
   </article>`;
 }
 
-function offerCard(listing: Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }): string {
+function offerCard(
+  listing: Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number },
+): string {
   const exclusionLabel = listing.externalId.startsWith("product:") ? "Wyklucz to wydanie" : "Wyklucz tę ofertę";
   const imageUrl = validateImageUrl(listing.imageUrl);
   return `<article class="offer-card${listing.fromLatestCheck ? " latest" : ""}">
@@ -66,15 +85,35 @@ function offerCard(listing: Listing & { monitorId: number; monitorName: string; 
   </article>`;
 }
 
-export function renderPage(monitors: Monitor[], listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>, exclusions: MonitorExclusion[]): string {
-  const activeMonitors = monitors.filter(monitor => monitor.enabled && monitor.initialized && monitor.activeClientsCount > 0 && !monitor.lastError).length;
-  return renderLayout("Panel", `
+export function renderPage(
+  monitors: Monitor[],
+  listings: Array<Listing & { monitorId: number; monitorName: string; firstSeenAt: string; fromLatestCheck: number }>,
+  exclusions: MonitorExclusion[],
+): string {
+  const activeMonitors = monitors.filter(
+    (monitor) => monitor.enabled && monitor.initialized && monitor.activeClientsCount > 0 && !monitor.lastError,
+  ).length;
+  return renderLayout(
+    "Panel",
+    `
     <figure class="about"><span class="dedication-hearts" aria-hidden="true"><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span><span>♥</span></span><blockquote>… z inspiracji i specjalnie dla Wioli, która tak kocha książki 📚</blockquote><figcaption>— Jacek</figcaption></figure>
     <section><div class="section-head"><h2>Obserwowane wyszukiwania</h2><span>${activeMonitors}/${monitors.length} aktywnych</span></div>
-      <div class="monitor-list">${monitors.length ? monitors.map(monitor => monitorCard(monitor, exclusions.filter(exclusion => exclusion.monitorId === monitor.id))).join("") : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Otwórz wyszukiwanie Allegro i dodaj je za pomocą rozszerzenia.</div>`}</div></section>
+      <div class="monitor-list">${
+        monitors.length
+          ? monitors
+              .map((monitor) =>
+                monitorCard(
+                  monitor,
+                  exclusions.filter((exclusion) => exclusion.monitorId === monitor.id),
+                ),
+              )
+              .join("")
+          : `<div class="empty"><strong>Jeszcze niczego nie obserwujesz</strong>Otwórz wyszukiwanie Allegro i dodaj je za pomocą rozszerzenia.</div>`
+      }</div></section>
     <section><div class="section-head"><h2>Ostatnio znalezione oferty</h2><span>maksymalnie 50</span></div>
       ${listings.length ? `<div class="offers">${listings.map(offerCard).join("")}</div>` : `<div class="empty"><strong>Tu pojawią się książki</strong>Pierwsze sprawdzenie tworzy punkt odniesienia i nie wysyła powiadomień.</div>`}</section>
-`);
+`,
+  );
 }
 
 export function renderLogin(error = false): string {

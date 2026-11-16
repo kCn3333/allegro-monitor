@@ -11,324 +11,463 @@ import { renderExtension } from "./extension-page.js";
 import type { DeviceInfo } from "./types.js";
 import { renderFaq } from "./faq.js";
 import { TelegramWorker } from "./notifications.js";
-import { credentialFingerprint, expiredSessionCookie, isSameOriginRequest, safeCredentialsEqual,
-  sessionCookie, sessionTokenFromCookie, tokenHash } from "./security.js";
+import {
+  credentialFingerprint,
+  expiredSessionCookie,
+  isSameOriginRequest,
+  safeCredentialsEqual,
+  sessionCookie,
+  sessionTokenFromCookie,
+  tokenHash,
+} from "./security.js";
 import { renderLogin, renderPage } from "./ui.js";
 import { assertAllegroUrl, validateListings } from "./validation.js";
 
 export async function buildApp(options: { now?: () => number; startWorker?: boolean; config?: typeof config } = {}) {
-const settings = options.config || config;
-const now = options.now || Date.now;
-if (process.env.NODE_ENV === "production" && (!settings.username || !settings.password || settings.sessionSecret.length < 32)) {
-  throw new Error("APP_USERNAME, APP_PASSWORD i APP_SESSION_SECRET (minimum 32 znaki) są wymagane w środowisku produkcyjnym");
-}
+  const settings = options.config || config;
+  const now = options.now || Date.now;
+  if (
+    process.env.NODE_ENV === "production" &&
+    (!settings.username || !settings.password || settings.sessionSecret.length < 32)
+  ) {
+    throw new Error(
+      "APP_USERNAME, APP_PASSWORD i APP_SESSION_SECRET (minimum 32 znaki) są wymagane w środowisku produkcyjnym",
+    );
+  }
 
-if (process.env.NODE_ENV === "production" && !settings.publicUrl) throw new Error("APP_PUBLIC_URL jest wymagane w środowisku produkcyjnym");
-const extensionPackage = settings.publicUrl ? await buildExtensionPackage(settings.publicUrl, settings.extensionDirectory) : null;
+  if (process.env.NODE_ENV === "production" && !settings.publicUrl)
+    throw new Error("APP_PUBLIC_URL jest wymagane w środowisku produkcyjnym");
+  const extensionPackage = settings.publicUrl
+    ? await buildExtensionPackage(settings.publicUrl, settings.extensionDirectory)
+    : null;
 
-const app = Fastify({ logger: true, bodyLimit: 256_000, trustProxy: settings.trustProxy });
-const store = new Store(settings.databasePath, settings.listingRetentionChecks, now);
-const pairingCodes = new Map<string, number>();
-const worker = new TelegramWorker(store, settings.telegramBotToken, undefined, now);
-if (options.startWorker !== false) worker.start();
-app.addHook("onClose", async () => { await worker.stop(); store.close(); });
-const attempts = new Map<string, { count: number; resetAt: number }>();
-const allowedIntervals = new Set([1, 5, 15, 30, 60]);
-const latestExtensionVersion = (() => {
-  try { return String(JSON.parse(fs.readFileSync(`${settings.extensionDirectory}/manifest.json`, "utf8")).version || ""); }
-  catch { return ""; }
-})();
-
-await app.register(formbody);
-
-const secureCookies = process.env.NODE_ENV === "production";
-const webCredentialFingerprint = credentialFingerprint(settings.username, settings.password, settings.sessionSecret || "development-session-secret");
-
-function extensionClientId(request: FastifyRequest, reply: FastifyReply): number | null {
-  const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
-  const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
-  if (!clientId) { void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" }); return null; }
-  return clientId;
-}
-
-function allowAttempt(key: string, maximum: number, windowMs: number): boolean {
-  const time = now();
-  pruneAttempts();
-  const current = attempts.get(key);
-  if (!current) { if (attempts.size >= 10000) return false; attempts.set(key, { count: 1, resetAt: time + windowMs }); return true; }
-  current.count += 1;
-  return current.count <= maximum;
-}
-
-function pruneAttempts() {
-  for (const [key, entry] of attempts) if (entry.resetAt <= now()) attempts.delete(key);
-}
-
-function prunePairingCodes(time: number) {
-  for (const [code, expiresAt] of pairingCodes) if (expiresAt <= time) pairingCodes.delete(code);
-}
-
-function parseMonitorId(value: string): number | null {
-  const id = Number(value);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
-}
-
-app.addHook("onRequest", async (request, reply) => {
-  reply.headers({
-    "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Referrer-Policy": "no-referrer",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY"
+  const app = Fastify({ logger: true, bodyLimit: 256_000, trustProxy: settings.trustProxy });
+  const store = new Store(settings.databasePath, settings.listingRetentionChecks, now);
+  const pairingCodes = new Map<string, number>();
+  const worker = new TelegramWorker(store, settings.telegramBotToken, undefined, now);
+  if (options.startWorker !== false) worker.start();
+  app.addHook("onClose", async () => {
+    await worker.stop();
+    store.close();
   });
-  const path = request.url.split("?", 1)[0];
-  if ((request.method === "GET" || request.method === "HEAD") && publicAssets.has(path || "")) return;
-  if (path === "/health" || path === "/api/extension/pair" || path === "/api/extension/presence" || path === "/api/extension/notifications/ack" || path?.startsWith("/api/extension/monitors")) return;
-  if (path === "/login") {
-    if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
-    return;
-  }
-  if (!settings.username || !settings.password) {
-    if (path === "/devices" || path?.startsWith("/devices/")) return reply.code(503).send("Zarządzanie urządzeniami wymaga skonfigurowanego logowania");
-    return;
-  }
-  const token = sessionTokenFromCookie(request.headers.cookie);
-  const duration = token ? store.touchWebSession(tokenHash(token), webCredentialFingerprint) : null;
-  if (!duration) return reply.redirect("/login");
-  if (path !== "/logout") reply.header("Set-Cookie", sessionCookie(token!, duration > 24 * 60 * 60, secureCookies));
-  if (request.method === "POST" && !isSameOriginRequest(request.headers)) return reply.code(403).send("Żądanie cross-site zostało odrzucone");
-});
-
-app.get("/health", async () => ({ status: "ok" }));
-for (const [url, asset] of publicAssets) {
-  app.get(url, async (_request, reply) => reply.type(asset.type).send(asset.body));
-}
-app.get("/login", async (request, reply) => {
-  if (!settings.username || !settings.password) return reply.redirect("/");
-  const token = sessionTokenFromCookie(request.headers.cookie);
-  if (token && store.touchWebSession(tokenHash(token), webCredentialFingerprint)) return reply.redirect("/");
-  return reply.type("text/html; charset=utf-8").send(renderLogin());
-});
-app.post<{ Body: { username?: string; password?: string; remember?: string } }>("/login", async (request, reply) => {
-  pruneAttempts();
-  const attempt = attempts.get(`login:${request.ip}`);
-  if ((attempt && attempt.count >= 20) || (!attempt && attempts.size >= 10000)) {
-    const resetAt = attempt?.resetAt ?? Math.min(...[...attempts.values()].map(entry => entry.resetAt));
-    return reply.code(429).header("Retry-After", Math.max(1, Math.ceil((resetAt - now()) / 1000)))
-      .type("text/html; charset=utf-8").send(renderLogin(true));
-  }
-  const username = String(request.body?.username || "").slice(0, 100);
-  const password = String(request.body?.password || "").slice(0, 500);
-  if (!safeCredentialsEqual(username, password, settings.username, settings.password)) {
-    allowAttempt(`login:${request.ip}`, 20, 15 * 60_000);
-    return reply.code(401).type("text/html; charset=utf-8").send(renderLogin(true));
-  }
-  attempts.delete(`login:${request.ip}`);
-  const remember = request.body?.remember === "yes";
-  const duration = remember ? 30 * 24 * 60 * 60 : 12 * 60 * 60;
-  const token = crypto.randomBytes(32).toString("base64url");
-  store.createWebSession(tokenHash(token), webCredentialFingerprint, duration);
-  return reply.header("Set-Cookie", sessionCookie(token, remember, secureCookies)).redirect("/");
-});
-app.post("/logout", async (request, reply) => {
-  const token = sessionTokenFromCookie(request.headers.cookie);
-  if (token) store.deleteWebSession(tokenHash(token));
-  return reply.header("Set-Cookie", expiredSessionCookie(secureCookies)).redirect("/login");
-});
-app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions())));
-app.post("/devices/revoke-all", async (_request, reply) => {
-  store.revokeAllExtensionClients();
-  pairingCodes.clear();
-  return reply.redirect("/devices");
-});
-app.post<{ Params: { id: string } }>("/devices/:id/revoke", async (request, reply) => {
-  const id = parseMonitorId(request.params.id);
-  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
-  if (!store.revokeExtensionClient(id)) return reply.code(404).send("Urządzenie nie istnieje");
-  return reply.redirect("/devices");
-});
-app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/devices/:id/rename", async (request, reply) => {
-  const id = parseMonitorId(request.params.id);
-  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
-  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-  if (!name || name.length > 100) return reply.code(400).send("Nazwa urządzenia musi mieć od 1 do 100 znaków");
-  if (!store.renameExtensionClient(id, name)) return reply.code(404).send("Urządzenie nie istnieje");
-  return reply.redirect("/devices");
-});
-app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
-
-app.get("/devices", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())));
-app.get("/extension", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderExtension(latestExtensionVersion)));
-
-app.get("/extension/download", async (_request, reply) => {
-  if (!extensionPackage) return reply.code(503).send("Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
-  return reply.header("Content-Disposition", 'attachment; filename="allegro-monitor-extension.zip"').type("application/zip").send(extensionPackage);
-});
-
-app.post("/api/extension/pairing-code", async (_request, reply) => {
-  const time = now();
-  prunePairingCodes(time);
-  if (pairingCodes.size >= 100) {
-    const retryAfter = Math.max(1, Math.ceil((Math.min(...pairingCodes.values()) - time) / 1000));
-    return reply.code(429).header("Retry-After", retryAfter).send("Zbyt wiele aktywnych kodów parowania");
-  }
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code: string;
-  do {
-    const raw = Array.from(crypto.randomBytes(8), byte => alphabet[byte % alphabet.length]).join("");
-    code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
-  } while (pairingCodes.has(code));
-  pairingCodes.set(code, time + 10 * 60_000);
-  return reply.send({ code, expiresInSeconds: 600 });
-});
-
-app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
-  const time = now();
-  prunePairingCodes(time);
-  if (!allowAttempt(`pair:${request.ip}`, 12, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób parowania");
-  const body = request.body;
-  if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send("Nieprawidłowe dane parowania");
-  const { code: rawCode, name } = body as Record<string, unknown>;
-  if (typeof rawCode !== "string" || (name !== undefined && typeof name !== "string")) {
-    return reply.code(400).send("Nieprawidłowe dane parowania");
-  }
-  const code = rawCode.trim().toUpperCase();
-  const expires = pairingCodes.get(code);
-  if (expires === undefined || expires <= time) return reply.code(400).send("Kod jest nieprawidłowy lub wygasł");
-  pairingCodes.delete(code);
-  attempts.delete(`pair:${request.ip}`);
-  const token = crypto.randomBytes(32).toString("base64url");
-  const clientId = store.addExtensionClient(name || "Vivaldi", tokenHash(token));
-  store.linkClientToAllMonitors(clientId);
-  return reply.send({ token });
-});
-
-app.post<{ Body: { name?: unknown; url?: string; intervalMinutes?: number } }>("/api/extension/monitors", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-  if (!name || name.length > 100) return reply.code(400).send("Nieprawidłowe dane monitora");
-  const interval = Number(request.body?.intervalMinutes);
-  if (!allowedIntervals.has(interval)) return reply.code(400).send("Nieprawidłowe dane monitora");
-  let url: URL; try { url = assertAllegroUrl(request.body?.url || ""); } catch (error) { return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowy URL"); }
-  const existing = store.findMonitorByUrl(url.toString());
-  if (existing) {
-    store.updateMonitorSettings(existing.id, name, interval);
-    store.linkMonitorClient(existing.id, clientId);
-    return reply.send({ id: existing.id, name, url: existing.url, intervalMinutes: interval, newListingsCount: existing.newListingsCount, lastCheckNewCount: existing.lastCheckNewCount });
-  }
-  const id = store.createMonitor(name, url.toString(), interval);
-  store.linkMonitorToAllClients(id, clientId);
-  return reply.send({ id, name, url: url.toString(), intervalMinutes: interval, newListingsCount: 0, lastCheckNewCount: 0 });
-});
-
-app.post<{ Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificationProtocol?: number; device?: unknown } }>("/api/extension/presence", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const monitors = request.body?.monitors;
-  if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
-  const device = request.body?.device;
-  if (device !== undefined) {
-    if (!device || typeof device !== "object" || Array.isArray(device)) return reply.code(400).send("Nieprawidłowe dane urządzenia");
-    const info = {} as DeviceInfo;
-    for (const key of ["extensionVersion", "browser", "os", "osVersion", "arch"] as const) {
-      const value = (device as Record<string, unknown>)[key];
-      if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 160)) return reply.code(400).send("Nieprawidłowe dane urządzenia");
-      info[key] = typeof value === "string" ? value.trim() || null : null;
+  const attempts = new Map<string, { count: number; resetAt: number }>();
+  const allowedIntervals = new Set([1, 5, 15, 30, 60]);
+  const latestExtensionVersion = (() => {
+    try {
+      return String(JSON.parse(fs.readFileSync(`${settings.extensionDirectory}/manifest.json`, "utf8")).version || "");
+    } catch {
+      return "";
     }
-    store.updateExtensionClientInfo(clientId, info);
+  })();
+
+  await app.register(formbody);
+
+  const secureCookies = process.env.NODE_ENV === "production";
+  const webCredentialFingerprint = credentialFingerprint(
+    settings.username,
+    settings.password,
+    settings.sessionSecret || "development-session-secret",
+  );
+
+  function extensionClientId(request: FastifyRequest, reply: FastifyReply): number | null {
+    const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1] || "";
+    const clientId = token && token.length <= 128 ? store.touchExtensionClient(tokenHash(token)) : null;
+    if (!clientId) {
+      void reply.code(401).send({ error: "Nieprawidłowy token rozszerzenia" });
+      return null;
+    }
+    return clientId;
   }
-  let updated = 0;
-  for (const presence of monitors) {
-    const id = Number(presence?.id);
-    if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
-    store.linkMonitorClient(id, clientId, presence.open === true);
-    updated += 1;
+
+  function allowAttempt(key: string, maximum: number, windowMs: number): boolean {
+    const time = now();
+    pruneAttempts();
+    const current = attempts.get(key);
+    if (!current) {
+      if (attempts.size >= 10000) return false;
+      attempts.set(key, { count: 1, resetAt: time + windowMs });
+      return true;
+    }
+    current.count += 1;
+    return current.count <= maximum;
   }
-  const synchronized = store.listMonitors().map(monitor => ({
-    id: monitor.id, name: monitor.name, url: monitor.url, intervalMinutes: monitor.intervalMinutes,
-    enabled: Boolean(monitor.enabled), newListingsCount: monitor.newListingsCount,
-    lastCheckNewCount: monitor.lastCheckNewCount, activeClientsCount: monitor.activeClientsCount,
-    notificationsEnabled: store.areNotificationsEnabledForClient(monitor.id, clientId)
-  }));
-  if (request.body.notificationProtocol === 2) {
-    const batch = store.notificationBatch(clientId);
-    return reply.send({ updated, monitors: synchronized, notifications: batch.events, notificationBatch: batch.batchId, latestExtensionVersion });
+
+  function pruneAttempts() {
+    for (const [key, entry] of attempts) if (entry.resetAt <= now()) attempts.delete(key);
   }
-  return reply.send({ updated, monitors: synchronized, notifications: store.pullNotifications(clientId), latestExtensionVersion });
-});
 
-app.post<{ Body: { batchId?: string } }>("/api/extension/notifications/ack", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const batchId = request.body?.batchId;
-  if (typeof batchId !== "string" || batchId.length > 100) return reply.code(400).send({ error: "Nieprawidłowy ACK" });
-  // Repeated/unknown ACK is a safe no-op; it cannot advance any cursor.
-  return { acknowledged: store.acknowledgeNotifications(clientId, batchId) };
-});
+  function prunePairingCodes(time: number) {
+    for (const [code, expiresAt] of pairingCodes) if (expiresAt <= time) pairingCodes.delete(code);
+  }
 
-app.post<{ Params: { id: string }; Body: { listings?: unknown } }>("/api/extension/monitors/:id/results", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const id = parseMonitorId(request.params.id);
-  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-  const monitor = store.getMonitor(id);
-  if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje lub jest wyłączony");
-  store.linkMonitorClient(id, clientId, true);
-  let listings; try { listings = validateListings(request.body?.listings); } catch (error) { return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowe wyniki"); }
-  const fresh = store.saveCheck(monitor, listings, settings.telegramBotToken ? settings.telegramChatIds : []);
-  return reply.send({ accepted: listings.length, newListings: fresh, newListingsCount: monitor.newListingsCount + fresh.length, lastCheckNewCount: fresh.length });
-});
+  function parseMonitorId(value: string): number | null {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
 
-app.post<{ Params: { id: string }; Body: { message?: string } }>("/api/extension/monitors/:id/error", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const id = parseMonitorId(request.params.id);
-  if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
-  const monitor = store.getMonitor(id);
-  if (!monitor || !store.hasMonitorClient(id, clientId)) return reply.code(404).send("Monitor nie istnieje lub nie należy do tego rozszerzenia");
-  store.saveError(monitor, new Error(String(request.body?.message || "Nieznany błąd rozszerzenia").slice(0, 1000)));
-  return reply.send({ saved: true });
-});
+  app.addHook("onRequest", async (request, reply) => {
+    reply.headers({
+      "Cache-Control": "no-store",
+      "Content-Security-Policy":
+        "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "Referrer-Policy": "no-referrer",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+    });
+    const path = request.url.split("?", 1)[0];
+    if ((request.method === "GET" || request.method === "HEAD") && publicAssets.has(path || "")) return;
+    if (
+      path === "/health" ||
+      path === "/api/extension/pair" ||
+      path === "/api/extension/presence" ||
+      path === "/api/extension/notifications/ack" ||
+      path?.startsWith("/api/extension/monitors")
+    )
+      return;
+    if (path === "/login") {
+      if (request.method === "POST" && !isSameOriginRequest(request.headers))
+        return reply.code(403).send("Żądanie cross-site zostało odrzucone");
+      return;
+    }
+    if (!settings.username || !settings.password) {
+      if (path === "/devices" || path?.startsWith("/devices/"))
+        return reply.code(503).send("Zarządzanie urządzeniami wymaga skonfigurowanego logowania");
+      return;
+    }
+    const token = sessionTokenFromCookie(request.headers.cookie);
+    const duration = token ? store.touchWebSession(tokenHash(token), webCredentialFingerprint) : null;
+    if (!duration) return reply.redirect("/login");
+    if (path !== "/logout") reply.header("Set-Cookie", sessionCookie(token!, duration > 24 * 60 * 60, secureCookies));
+    if (request.method === "POST" && !isSameOriginRequest(request.headers))
+      return reply.code(403).send("Żądanie cross-site zostało odrzucone");
+  });
 
-app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>("/api/extension/monitors/:id/notification-state", async (request, reply) => {
-  const clientId = extensionClientId(request, reply);
-  if (!clientId) return;
-  const id = parseMonitorId(request.params.id);
-  if (!id || typeof request.body?.enabled !== "boolean") return reply.code(400).send("Nieprawidłowy stan monitora");
-  if (!store.getMonitor(id)) return reply.code(404).send("Monitor nie istnieje");
-  store.setNotificationsForClient(id, clientId, request.body.enabled);
-  return reply.send({ enabled: request.body.enabled });
-});
+  app.get("/health", async () => ({ status: "ok" }));
+  for (const [url, asset] of publicAssets) {
+    app.get(url, async (_request, reply) => reply.type(asset.type).send(asset.body));
+  }
+  app.get("/login", async (request, reply) => {
+    if (!settings.username || !settings.password) return reply.redirect("/");
+    const token = sessionTokenFromCookie(request.headers.cookie);
+    if (token && store.touchWebSession(tokenHash(token), webCredentialFingerprint)) return reply.redirect("/");
+    return reply.type("text/html; charset=utf-8").send(renderLogin());
+  });
+  app.post<{ Body: { username?: string; password?: string; remember?: string } }>("/login", async (request, reply) => {
+    pruneAttempts();
+    const attempt = attempts.get(`login:${request.ip}`);
+    if ((attempt && attempt.count >= 20) || (!attempt && attempts.size >= 10000)) {
+      const resetAt = attempt?.resetAt ?? Math.min(...[...attempts.values()].map((entry) => entry.resetAt));
+      return reply
+        .code(429)
+        .header("Retry-After", Math.max(1, Math.ceil((resetAt - now()) / 1000)))
+        .type("text/html; charset=utf-8")
+        .send(renderLogin(true));
+    }
+    const username = String(request.body?.username || "").slice(0, 100);
+    const password = String(request.body?.password || "").slice(0, 500);
+    if (!safeCredentialsEqual(username, password, settings.username, settings.password)) {
+      allowAttempt(`login:${request.ip}`, 20, 15 * 60_000);
+      return reply.code(401).type("text/html; charset=utf-8").send(renderLogin(true));
+    }
+    attempts.delete(`login:${request.ip}`);
+    const remember = request.body?.remember === "yes";
+    const duration = remember ? 30 * 24 * 60 * 60 : 12 * 60 * 60;
+    const token = crypto.randomBytes(32).toString("base64url");
+    store.createWebSession(tokenHash(token), webCredentialFingerprint, duration);
+    return reply.header("Set-Cookie", sessionCookie(token, remember, secureCookies)).redirect("/");
+  });
+  app.post("/logout", async (request, reply) => {
+    const token = sessionTokenFromCookie(request.headers.cookie);
+    if (token) store.deleteWebSession(tokenHash(token));
+    return reply.header("Set-Cookie", expiredSessionCookie(secureCookies)).redirect("/login");
+  });
+  app.get("/", async (_request, reply) =>
+    reply
+      .type("text/html; charset=utf-8")
+      .send(renderPage(store.listMonitors(), store.recentListings(), store.listExclusions())),
+  );
+  app.post("/devices/revoke-all", async (_request, reply) => {
+    store.revokeAllExtensionClients();
+    pairingCodes.clear();
+    return reply.redirect("/devices");
+  });
+  app.post<{ Params: { id: string } }>("/devices/:id/revoke", async (request, reply) => {
+    const id = parseMonitorId(request.params.id);
+    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
+    if (!store.revokeExtensionClient(id)) return reply.code(404).send("Urządzenie nie istnieje");
+    return reply.redirect("/devices");
+  });
+  app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/devices/:id/rename", async (request, reply) => {
+    const id = parseMonitorId(request.params.id);
+    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+    if (!name || name.length > 100) return reply.code(400).send("Nazwa urządzenia musi mieć od 1 do 100 znaków");
+    if (!store.renameExtensionClient(id, name)) return reply.code(404).send("Urządzenie nie istnieje");
+    return reply.redirect("/devices");
+  });
+  app.get("/faq", async (_request, reply) => reply.type("text/html; charset=utf-8").send(renderFaq()));
 
-app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:id/exclusions", async (request, reply) => {
-  const id = parseMonitorId(request.params.id);
-  const externalId = String(request.body?.externalId || "").slice(0, 200);
-  if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
-  if (!store.addExclusion(id, externalId)) return reply.code(404).send("Pozycja nie istnieje w tym monitorze");
-  return reply.redirect("/");
-});
+  app.get("/devices", async (_request, reply) =>
+    reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())),
+  );
+  app.get("/extension", async (_request, reply) =>
+    reply.type("text/html; charset=utf-8").send(renderExtension(latestExtensionVersion)),
+  );
 
-app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/monitors/:id/rename", async (request, reply) => {
-  const id = parseMonitorId(request.params.id);
-  const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-  if (!id || !name || name.length > 100 || !store.getMonitor(id)) return reply.code(400).send("Nieprawidłowa nazwa monitora");
-  store.renameMonitor(id, name);
-  return reply.redirect("/");
-});
+  app.get("/extension/download", async (_request, reply) => {
+    if (!extensionPackage) return reply.code(503).send("Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
+    return reply
+      .header("Content-Disposition", 'attachment; filename="allegro-monitor-extension.zip"')
+      .type("application/zip")
+      .send(extensionPackage);
+  });
 
-app.post<{ Params: { id: string }; Body: { externalId?: string } }>("/monitors/:id/exclusions/remove", async (request, reply) => {
-  const id = parseMonitorId(request.params.id);
-  const externalId = String(request.body?.externalId || "").slice(0, 200);
-  if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
-  store.removeExclusion(id, externalId);
-  return reply.redirect("/");
-});
+  app.post("/api/extension/pairing-code", async (_request, reply) => {
+    const time = now();
+    prunePairingCodes(time);
+    if (pairingCodes.size >= 100) {
+      const retryAfter = Math.max(1, Math.ceil((Math.min(...pairingCodes.values()) - time) / 1000));
+      return reply.code(429).header("Retry-After", retryAfter).send("Zbyt wiele aktywnych kodów parowania");
+    }
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code: string;
+    do {
+      const raw = Array.from(crypto.randomBytes(8), (byte) => alphabet[byte % alphabet.length]).join("");
+      code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+    } while (pairingCodes.has(code));
+    pairingCodes.set(code, time + 10 * 60_000);
+    return reply.send({ code, expiresInSeconds: 600 });
+  });
 
-app.post<{ Params: { id: string } }>("/monitors/:id/toggle", async (request, reply) => { const id = parseMonitorId(request.params.id); if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora"); store.toggleMonitor(id); return reply.redirect("/"); });
-app.post<{ Params: { id: string } }>("/monitors/:id/delete", async (request, reply) => { const id = parseMonitorId(request.params.id); if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora"); store.deleteMonitor(id); return reply.redirect("/"); });
+  app.post<{ Body: unknown }>("/api/extension/pair", async (request, reply) => {
+    const time = now();
+    prunePairingCodes(time);
+    if (!allowAttempt(`pair:${request.ip}`, 12, 15 * 60_000)) return reply.code(429).send("Zbyt wiele prób parowania");
+    const body = request.body;
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return reply.code(400).send("Nieprawidłowe dane parowania");
+    const { code: rawCode, name } = body as Record<string, unknown>;
+    if (typeof rawCode !== "string" || (name !== undefined && typeof name !== "string")) {
+      return reply.code(400).send("Nieprawidłowe dane parowania");
+    }
+    const code = rawCode.trim().toUpperCase();
+    const expires = pairingCodes.get(code);
+    if (expires === undefined || expires <= time) return reply.code(400).send("Kod jest nieprawidłowy lub wygasł");
+    pairingCodes.delete(code);
+    attempts.delete(`pair:${request.ip}`);
+    const token = crypto.randomBytes(32).toString("base64url");
+    const clientId = store.addExtensionClient(name || "Vivaldi", tokenHash(token));
+    store.linkClientToAllMonitors(clientId);
+    return reply.send({ token });
+  });
 
-return app;
+  app.post<{ Body: { name?: unknown; url?: string; intervalMinutes?: number } }>(
+    "/api/extension/monitors",
+    async (request, reply) => {
+      const clientId = extensionClientId(request, reply);
+      if (!clientId) return;
+      const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+      if (!name || name.length > 100) return reply.code(400).send("Nieprawidłowe dane monitora");
+      const interval = Number(request.body?.intervalMinutes);
+      if (!allowedIntervals.has(interval)) return reply.code(400).send("Nieprawidłowe dane monitora");
+      let url: URL;
+      try {
+        url = assertAllegroUrl(request.body?.url || "");
+      } catch (error) {
+        return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowy URL");
+      }
+      const existing = store.findMonitorByUrl(url.toString());
+      if (existing) {
+        store.updateMonitorSettings(existing.id, name, interval);
+        store.linkMonitorClient(existing.id, clientId);
+        return reply.send({
+          id: existing.id,
+          name,
+          url: existing.url,
+          intervalMinutes: interval,
+          newListingsCount: existing.newListingsCount,
+          lastCheckNewCount: existing.lastCheckNewCount,
+        });
+      }
+      const id = store.createMonitor(name, url.toString(), interval);
+      store.linkMonitorToAllClients(id, clientId);
+      return reply.send({
+        id,
+        name,
+        url: url.toString(),
+        intervalMinutes: interval,
+        newListingsCount: 0,
+        lastCheckNewCount: 0,
+      });
+    },
+  );
+
+  app.post<{
+    Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificationProtocol?: number; device?: unknown };
+  }>("/api/extension/presence", async (request, reply) => {
+    const clientId = extensionClientId(request, reply);
+    if (!clientId) return;
+    const monitors = request.body?.monitors;
+    if (!Array.isArray(monitors) || monitors.length > 100) return reply.code(400).send("Nieprawidłowa lista obecności");
+    const device = request.body?.device;
+    if (device !== undefined) {
+      if (!device || typeof device !== "object" || Array.isArray(device))
+        return reply.code(400).send("Nieprawidłowe dane urządzenia");
+      const info = {} as DeviceInfo;
+      for (const key of ["extensionVersion", "browser", "os", "osVersion", "arch"] as const) {
+        const value = (device as Record<string, unknown>)[key];
+        if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 160))
+          return reply.code(400).send("Nieprawidłowe dane urządzenia");
+        info[key] = typeof value === "string" ? value.trim() || null : null;
+      }
+      store.updateExtensionClientInfo(clientId, info);
+    }
+    let updated = 0;
+    for (const presence of monitors) {
+      const id = Number(presence?.id);
+      if (!Number.isSafeInteger(id) || id <= 0 || !store.getMonitor(id)) continue;
+      store.linkMonitorClient(id, clientId, presence.open === true);
+      updated += 1;
+    }
+    const synchronized = store.listMonitors().map((monitor) => ({
+      id: monitor.id,
+      name: monitor.name,
+      url: monitor.url,
+      intervalMinutes: monitor.intervalMinutes,
+      enabled: Boolean(monitor.enabled),
+      newListingsCount: monitor.newListingsCount,
+      lastCheckNewCount: monitor.lastCheckNewCount,
+      activeClientsCount: monitor.activeClientsCount,
+      notificationsEnabled: store.areNotificationsEnabledForClient(monitor.id, clientId),
+    }));
+    if (request.body.notificationProtocol === 2) {
+      const batch = store.notificationBatch(clientId);
+      return reply.send({
+        updated,
+        monitors: synchronized,
+        notifications: batch.events,
+        notificationBatch: batch.batchId,
+        latestExtensionVersion,
+      });
+    }
+    return reply.send({
+      updated,
+      monitors: synchronized,
+      notifications: store.pullNotifications(clientId),
+      latestExtensionVersion,
+    });
+  });
+
+  app.post<{ Body: { batchId?: string } }>("/api/extension/notifications/ack", async (request, reply) => {
+    const clientId = extensionClientId(request, reply);
+    if (!clientId) return;
+    const batchId = request.body?.batchId;
+    if (typeof batchId !== "string" || batchId.length > 100)
+      return reply.code(400).send({ error: "Nieprawidłowy ACK" });
+    // Repeated/unknown ACK is a safe no-op; it cannot advance any cursor.
+    return { acknowledged: store.acknowledgeNotifications(clientId, batchId) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { listings?: unknown } }>(
+    "/api/extension/monitors/:id/results",
+    async (request, reply) => {
+      const clientId = extensionClientId(request, reply);
+      if (!clientId) return;
+      const id = parseMonitorId(request.params.id);
+      if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+      const monitor = store.getMonitor(id);
+      if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId))
+        return reply.code(404).send("Monitor nie istnieje lub jest wyłączony");
+      store.linkMonitorClient(id, clientId, true);
+      let listings;
+      try {
+        listings = validateListings(request.body?.listings);
+      } catch (error) {
+        return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowe wyniki");
+      }
+      const fresh = store.saveCheck(monitor, listings, settings.telegramBotToken ? settings.telegramChatIds : []);
+      return reply.send({
+        accepted: listings.length,
+        newListings: fresh,
+        newListingsCount: monitor.newListingsCount + fresh.length,
+        lastCheckNewCount: fresh.length,
+      });
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { message?: string } }>(
+    "/api/extension/monitors/:id/error",
+    async (request, reply) => {
+      const clientId = extensionClientId(request, reply);
+      if (!clientId) return;
+      const id = parseMonitorId(request.params.id);
+      if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+      const monitor = store.getMonitor(id);
+      if (!monitor || !store.hasMonitorClient(id, clientId))
+        return reply.code(404).send("Monitor nie istnieje lub nie należy do tego rozszerzenia");
+      store.saveError(monitor, new Error(String(request.body?.message || "Nieznany błąd rozszerzenia").slice(0, 1000)));
+      return reply.send({ saved: true });
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>(
+    "/api/extension/monitors/:id/notification-state",
+    async (request, reply) => {
+      const clientId = extensionClientId(request, reply);
+      if (!clientId) return;
+      const id = parseMonitorId(request.params.id);
+      if (!id || typeof request.body?.enabled !== "boolean") return reply.code(400).send("Nieprawidłowy stan monitora");
+      if (!store.getMonitor(id)) return reply.code(404).send("Monitor nie istnieje");
+      store.setNotificationsForClient(id, clientId, request.body.enabled);
+      return reply.send({ enabled: request.body.enabled });
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { externalId?: string } }>(
+    "/monitors/:id/exclusions",
+    async (request, reply) => {
+      const id = parseMonitorId(request.params.id);
+      const externalId = String(request.body?.externalId || "").slice(0, 200);
+      if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
+      if (!store.addExclusion(id, externalId)) return reply.code(404).send("Pozycja nie istnieje w tym monitorze");
+      return reply.redirect("/");
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/monitors/:id/rename", async (request, reply) => {
+    const id = parseMonitorId(request.params.id);
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+    if (!id || !name || name.length > 100 || !store.getMonitor(id))
+      return reply.code(400).send("Nieprawidłowa nazwa monitora");
+    store.renameMonitor(id, name);
+    return reply.redirect("/");
+  });
+
+  app.post<{ Params: { id: string }; Body: { externalId?: string } }>(
+    "/monitors/:id/exclusions/remove",
+    async (request, reply) => {
+      const id = parseMonitorId(request.params.id);
+      const externalId = String(request.body?.externalId || "").slice(0, 200);
+      if (!id || !externalId) return reply.code(400).send("Nieprawidłowe dane wykluczenia");
+      store.removeExclusion(id, externalId);
+      return reply.redirect("/");
+    },
+  );
+
+  app.post<{ Params: { id: string } }>("/monitors/:id/toggle", async (request, reply) => {
+    const id = parseMonitorId(request.params.id);
+    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+    store.toggleMonitor(id);
+    return reply.redirect("/");
+  });
+  app.post<{ Params: { id: string } }>("/monitors/:id/delete", async (request, reply) => {
+    const id = parseMonitorId(request.params.id);
+    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+    store.deleteMonitor(id);
+    return reply.redirect("/");
+  });
+
+  return app;
 }

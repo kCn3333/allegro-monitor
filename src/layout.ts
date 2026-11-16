@@ -1,6 +1,10 @@
 import { icon } from "./icons.js";
 import { appVersion, brandHead, brandLogo } from "./branding.js";
-export const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
+export const escapeHtml = (value: unknown) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
+  );
 export const interactionStyles = `
   :where(button,.button,.github-link,summary){transition:background-color .16s,border-color .16s,color .16s,box-shadow .16s}
   :where(button,.button):not(:disabled):not([inert]):hover{background:color-mix(in srgb,var(--brand) 10%,var(--surface));border-color:color-mix(in srgb,var(--brand) 55%,var(--line));color:var(--brand);box-shadow:0 2px 8px color-mix(in srgb,var(--brand) 12%,transparent)}
@@ -27,7 +31,16 @@ const styles = `
 ${interactionStyles}
 .device-actions{justify-content:flex-end}
 `;
-export function renderLayout(title: string, content: string, current = "/", pageScript: "" | "/assets/devices.js" | "/assets/extension-page.js" = ""): string {
-  const header = `    <header class="topbar"><div class="brand">${brandLogo}<div class="brand-title"><h1>Allegro Monitor</h1><span class="app-version" aria-label="Wersja aplikacji ${escapeHtml(appVersion)}">v${escapeHtml(appVersion)}</span><a class="github-link" href="https://github.com/kCn3333/allegro-monitor" target="_blank" rel="noopener noreferrer" aria-label="Repozytorium na GitHubie" title="GitHub">${icon("github")}</a></div></div><nav class="top-actions" aria-label="Nawigacja główna"><a class="button subtle" href="/">${icon("panel")}Panel</a><a class="button subtle" href="/devices">${icon("devices")}Urządzenia</a><a class="button subtle" href="/faq">${icon("help")}FAQ</a><a class="button subtle" href="/extension">${icon("extension")}Rozszerzenie</a><form method="post" action="/logout"><button class="button subtle icon-only" type="submit" aria-label="Wyloguj" title="Wyloguj">${icon("logout")}</button></form><button class="theme-toggle" type="button" id="theme-toggle" aria-label="Włącz ciemny motyw" title="Włącz ciemny motyw"><span data-theme-icon="sun" aria-hidden="true" hidden>${icon("sun")}</span><span data-theme-icon="moon" aria-hidden="true">${icon("moon")}</span></button></nav></header>`.replace(`href="${current}"`, `href="${current}" aria-current="page"`);
+export function renderLayout(
+  title: string,
+  content: string,
+  current = "/",
+  pageScript: "" | "/assets/devices.js" | "/assets/extension-page.js" = "",
+): string {
+  const header =
+    `    <header class="topbar"><div class="brand">${brandLogo}<div class="brand-title"><h1>Allegro Monitor</h1><span class="app-version" aria-label="Wersja aplikacji ${escapeHtml(appVersion)}">v${escapeHtml(appVersion)}</span><a class="github-link" href="https://github.com/kCn3333/allegro-monitor" target="_blank" rel="noopener noreferrer" aria-label="Repozytorium na GitHubie" title="GitHub">${icon("github")}</a></div></div><nav class="top-actions" aria-label="Nawigacja główna"><a class="button subtle" href="/">${icon("panel")}Panel</a><a class="button subtle" href="/devices">${icon("devices")}Urządzenia</a><a class="button subtle" href="/faq">${icon("help")}FAQ</a><a class="button subtle" href="/extension">${icon("extension")}Rozszerzenie</a><form method="post" action="/logout"><button class="button subtle icon-only" type="submit" aria-label="Wyloguj" title="Wyloguj">${icon("logout")}</button></form><button class="theme-toggle" type="button" id="theme-toggle" aria-label="Włącz ciemny motyw" title="Włącz ciemny motyw"><span data-theme-icon="sun" aria-hidden="true" hidden>${icon("sun")}</span><span data-theme-icon="moon" aria-hidden="true">${icon("moon")}</span></button></nav></header>`.replace(
+      `href="${current}"`,
+      `href="${current}" aria-current="page"`,
+    );
   return `<!doctype html><html lang="pl"><head><!-- Font Awesome Free by Fonticons, Inc. | https://fontawesome.com | CC BY 4.0: https://creativecommons.org/licenses/by/4.0/ --><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · Allegro Monitor</title>${brandHead}<script src="/assets/theme-init.js"></script><style>${styles}</style></head><body><main class="shell">${header}${content}<footer class="page-footer">Allegro Monitor · kCn & Codex · dla Wioli 📚</footer></main><script src="/assets/panel.js" defer></script>${pageScript ? `<script src="${escapeHtml(pageScript)}" defer></script>` : ""}</body></html>`;
 }
