@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initializeDatabaseSchema } from "./database-schema.js";
+import { SessionsRepository } from "./repositories/sessions.js";
 import type { DeviceInfo, ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
 
 const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
@@ -14,7 +15,7 @@ const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
 export class Store {
   private readonly db: DatabaseSync;
   private readonly listingRetentionChecks: number;
-  private nextSessionCleanupAt?: number;
+  private readonly sessions: SessionsRepository;
   private nextTelegramCleanupAt?: number;
 
   constructor(
@@ -32,6 +33,7 @@ export class Store {
       this.db.close();
       throw error;
     }
+    this.sessions = new SessionsRepository(this.db, this.now);
   }
 
   listMonitors(): Monitor[] {
@@ -240,40 +242,15 @@ export class Store {
   }
 
   createWebSession(tokenHash: string, credentialFingerprint: string, durationSeconds: number): void {
-    const now = new Date(this.now());
-    this.db
-      .prepare(`INSERT INTO web_sessions
-      (token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES(?,?,?,?,?,?)`)
-      .run(
-        tokenHash,
-        credentialFingerprint,
-        durationSeconds,
-        new Date(now.getTime() + durationSeconds * 1000).toISOString(),
-        now.toISOString(),
-        now.toISOString(),
-      );
+    this.sessions.createWebSession(tokenHash, credentialFingerprint, durationSeconds);
   }
 
   touchWebSession(tokenHash: string, credentialFingerprint: string): number | null {
-    const time = this.now();
-    const now = new Date(time);
-    if (this.nextSessionCleanupAt === undefined || time >= this.nextSessionCleanupAt) {
-      this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
-      this.nextSessionCleanupAt = time + 5 * 60_000;
-    }
-    const session = this.db
-      .prepare(`SELECT id,duration_seconds durationSeconds FROM web_sessions
-      WHERE token_hash=? AND credential_fingerprint=? AND expires_at>?`)
-      .get(tokenHash, credentialFingerprint, now.toISOString()) as { id: number; durationSeconds: number } | undefined;
-    if (!session) return null;
-    this.db
-      .prepare("UPDATE web_sessions SET expires_at=?,last_used_at=? WHERE id=?")
-      .run(new Date(now.getTime() + session.durationSeconds * 1000).toISOString(), now.toISOString(), session.id);
-    return session.durationSeconds;
+    return this.sessions.touchWebSession(tokenHash, credentialFingerprint);
   }
 
   deleteWebSession(tokenHash: string): void {
-    this.db.prepare("DELETE FROM web_sessions WHERE token_hash=?").run(tokenHash);
+    this.sessions.deleteWebSession(tokenHash);
   }
 
   linkMonitorClient(monitorId: number, clientId: number, tabOpen = true): void {
