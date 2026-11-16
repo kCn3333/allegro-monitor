@@ -6,7 +6,6 @@ import { config } from "./config.js";
 import { publicAssets } from "./branding.js";
 import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
-import { renderExtension } from "./extension-page.js";
 import type { DeviceInfo } from "./types.js";
 import { TelegramWorker } from "./notifications.js";
 import {
@@ -20,6 +19,7 @@ import { assertAllegroUrl, validateListings } from "./validation.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPanelRoutes } from "./routes/panel.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
+import { registerExtensionPageRoutes } from "./routes/extension-page.js";
 
 export async function buildApp(options: { now?: () => number; startWorker?: boolean; config?: typeof config } = {}) {
   const settings = options.config || config;
@@ -159,17 +159,7 @@ export async function buildApp(options: { now?: () => number; startWorker?: bool
   registerPanelRoutes(app, { store, parseMonitorId });
   registerDeviceRoutes(app, { store, parseMonitorId, clearPairingCodes: () => pairingCodes.clear() });
 
-  app.get("/extension", async (_request, reply) =>
-    reply.type("text/html; charset=utf-8").send(renderExtension(latestExtensionVersion)),
-  );
-
-  app.get("/extension/download", async (_request, reply) => {
-    if (!extensionPackage) return reply.code(503).send("Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
-    return reply
-      .header("Content-Disposition", 'attachment; filename="allegro-monitor-extension.zip"')
-      .type("application/zip")
-      .send(extensionPackage);
-  });
+  registerExtensionPageRoutes(app, { latestExtensionVersion, extensionPackage });
 
   app.post("/api/extension/pairing-code", async (_request, reply) => {
     const time = now();

@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { buildExtensionPackage, publicBackendUrl } from "../src/extension-package.js";
 import { buildApp } from "../src/server.js";
 import { config } from "../src/config.js";
+import { renderExtension } from "../src/extension-page.js";
 
 function temporary(t: any) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-package-test-"));
@@ -105,13 +106,17 @@ test("config reads .env while explicit process environment takes precedence", (t
   );
 });
 
-test("download uses configured origin rather than request Host or forwarded headers", async (t) => {
+test("download uses configured origin and initialization snapshot rather than request headers or changed files", async (t) => {
   const dir = temporary(t);
+  const source = path.join(dir, "source");
+  fs.cpSync("extension", source, { recursive: true });
+  const version = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8")).version;
   const app = await buildApp({
     startWorker: false,
     config: {
       ...config,
       publicUrl: "https://configured.example",
+      extensionDirectory: source,
       databasePath: path.join(dir, "db.sqlite"),
       username: "",
       password: "",
@@ -119,11 +124,30 @@ test("download uses configured origin rather than request Host or forwarded head
     },
   });
   t.after(() => app.close());
+  fs.rmSync(source, { recursive: true });
+  const page = await app.inject("/extension");
+  assert.equal(page.statusCode, 200);
+  assert.equal(page.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal(page.body, renderExtension(version));
+  const pageHead = await app.inject({ method: "HEAD", url: "/extension" });
+  assert.equal(pageHead.statusCode, 200);
+  assert.equal(pageHead.body, "");
+  assert.equal(pageHead.headers["content-type"], page.headers["content-type"]);
+  assert.equal(pageHead.headers["content-length"], page.headers["content-length"]);
   const response = await app.inject({
     url: "/extension/download",
     headers: { host: "attacker.example", "x-forwarded-host": "attacker.example" },
   });
   assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["content-type"], "application/zip");
+  assert.equal(response.headers["content-disposition"], 'attachment; filename="allegro-monitor-extension.zip"');
+  const head = await app.inject({ method: "HEAD", url: "/extension/download" });
+  assert.equal(head.statusCode, 200);
+  assert.equal(head.body, "");
+  for (const header of ["content-type", "content-disposition", "content-length"]) {
+    assert.equal(head.headers[header], response.headers[header]);
+  }
+  assert.deepEqual((await app.inject("/extension/download")).rawPayload, response.rawPayload);
   const archive = path.join(dir, "download.zip");
   fs.writeFileSync(archive, response.rawPayload);
   assert.match(
@@ -146,5 +170,60 @@ test("missing configuration cannot silently serve an archive with a built-in add
     },
   });
   t.after(() => app.close());
-  assert.equal((await app.inject("/extension/download")).statusCode, 503);
+  const response = await app.inject("/extension/download");
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body, "Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
+  assert.equal(response.headers["content-type"], "text/plain; charset=utf-8");
+  assert.equal(response.headers["content-disposition"], undefined);
+  const head = await app.inject({ method: "HEAD", url: "/extension/download" });
+  assert.equal(head.statusCode, 503);
+  assert.equal(head.body, "");
+  for (const header of ["content-type", "content-disposition", "content-length"]) {
+    assert.equal(head.headers[header], response.headers[header]);
+  }
+  assert.equal((await app.inject("/extension")).statusCode, 200);
 });
+
+for (const publicUrl of ["", "https://configured.example"]) {
+  test(`extension routes require a web session before serving ${publicUrl ? "the archive" : "the unavailable archive response"}`, async (t) => {
+    const dir = temporary(t);
+    const app = await buildApp({
+      startWorker: false,
+      config: {
+        ...config,
+        publicUrl,
+        databasePath: path.join(dir, "db.sqlite"),
+        username: "owner",
+        password: "test-password",
+        sessionSecret: "s".repeat(32),
+        telegramBotToken: "",
+      },
+    });
+    t.after(() => app.close());
+    for (const url of ["/extension", "/extension/download"]) {
+      for (const method of ["GET", "HEAD"] as const) {
+        for (const headers of [{}, { authorization: "Bearer invalid-token" }, { cookie: "session=invalid" }]) {
+          const response = await app.inject({ method, url, headers });
+          assert.equal(response.statusCode, 302);
+          assert.equal(response.headers.location, "/login");
+          assert.equal(response.headers["content-disposition"], undefined);
+          assert.doesNotMatch(response.body, /Ustaw APP_PUBLIC_URL/);
+        }
+      }
+    }
+    const login = await app.inject({
+      method: "POST",
+      url: "/login",
+      payload: { username: "owner", password: "test-password" },
+    });
+    assert.equal(login.statusCode, 302);
+    const cookie = String(login.headers["set-cookie"]).split(";", 1)[0]!;
+    for (const method of ["GET", "HEAD"] as const) {
+      assert.equal((await app.inject({ method, url: "/extension", headers: { cookie } })).statusCode, 200);
+      const download = await app.inject({ method, url: "/extension/download", headers: { cookie } });
+      assert.equal(download.statusCode, publicUrl ? 200 : 503);
+      if (!publicUrl && method === "GET") assert.equal(download.body, "Ustaw APP_PUBLIC_URL, aby pobrać rozszerzenie");
+      if (method === "HEAD") assert.equal(download.body, "");
+    }
+  });
+}
