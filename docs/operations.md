@@ -1,16 +1,12 @@
-# Backup, odtwarzanie i aktualizacja przez Portainera
+# Backup, odtwarzanie i aktualizacja
 
-Procedura dotyczy dostarczonego Compose i wolumenu `allegro-monitor-data`. Polecenia Docker wykonuj na tym samym silniku, którym zarządza Portainer. Nie wymagają znajomości fizycznej ścieżki wolumenu na hoście.
+Polecenia wykonuj na silniku Docker zarządzanym przez Portainera. Korzystają z nazw wolumenów, bez znajomości ich ścieżek na hoście.
 
-## Co zachować
+## Backup
 
-Poza repozytorium przechowuj konfigurację stosu, jego zmienne i sekrety, w tym `APP_USERNAME`, `APP_PASSWORD`, `APP_SESSION_SECRET`, ustawienia Telegrama oraz publicznego adresu i proxy. Zapisz pełny SHA commita użytego jako `IMAGE_TAG` i digest odpowiadającego mu obrazu. Sam tag `latest` nie identyfikuje wersji kopii. Kopię bazy i konfigurację przechowuj z ograniczonym dostępem, najlepiej zaszyfrowane, również poza hostem aplikacji.
+Poza repozytorium zachowaj konfigurację stosu, zmienne i sekrety oraz SHA commita (`IMAGE_TAG`) i digest obrazu. Kopie przechowuj z ograniczonym dostępem, również poza hostem aplikacji. Sam tag `latest` nie identyfikuje wersji.
 
-SQLite działa w trybie WAL. Nie kopiuj samego aktywnego `monitor.sqlite` i nie usuwaj plików `-wal` ani `-shm`. Kopia obejmuje **cały zatrzymany wolumen**, również te pliki, jeśli pozostały po zatrzymaniu. [Opis WAL w SQLite](https://sqlite.org/wal.html#the_wal_file).
-
-## Ręczny backup
-
-1. W Portainerze ustal nazwę kontenera aplikacji. Przygotuj prywatny katalog kopii poza repozytorium i zapisz identyfikatory aktualnego obrazu:
+1. Ustaw nazwę kontenera z Portainera i przygotuj katalog kopii:
 
    ```sh
    APP_CONTAINER='nazwa-kontenera-z-Portainera'
@@ -23,9 +19,7 @@ SQLite działa w trybie WAL. Nie kopiuj samego aktywnego `monitor.sqlite` i nie 
    docker image inspect --format '{{json .RepoDigests}}' "$APP_IMAGE" >> "$BACKUP_DIR/image.txt"
    ```
 
-   Lokalny ID obrazu nie jest SHA commita; SHA zachowaj ze stosu lub powiązanego przebiegu CI. Na innym hoście pobierz ten sam obraz po zapisanym SHA/digeście i ustaw odpowiednio `APP_IMAGE`.
-
-2. Zatrzymaj kontener przyciskiem **Stop** w Portainerze lub poleceniem poniżej. Potwierdź zatrzymanie i brak innych działających kontenerów korzystających z wolumenu:
+2. Zatrzymaj aplikację i sprawdź brak innych kontenerów korzystających z wolumenu:
 
    ```sh
    docker stop "$APP_CONTAINER"
@@ -33,9 +27,9 @@ SQLite działa w trybie WAL. Nie kopiuj samego aktywnego `monitor.sqlite` i nie 
    test -z "$(docker ps -q --filter volume="$DATA_VOLUME")"
    ```
 
-   Potwierdź także brak zapisujących procesów poza kontenerami: narzędzi SQLite, skryptów administracyjnych i innych usług z dostępem do danych. Sam pusty wynik `docker ps` tego nie dowodzi. Nie rozpoczynaj kopii, dopóki wszystkie procesy zapisujące bazę nie są zatrzymane; w czasie kopiowania nie aktualizuj ani nie uruchamiaj stosu.
+   Kontynuuj tylko po potwierdzeniu, że żaden proces nie zapisuje bazy, także spoza kontenerów. Do końca kopiowania nie uruchamiaj ani nie aktualizuj stosu.
 
-3. Wykonaj archiwum całego wolumenu przez kontener pomocniczy z tego samego obrazu. Źródło jest montowane tylko do odczytu; `tar` zachowuje numeryczne UID/GID i uprawnienia:
+3. Skopiuj **cały wolumen**, zachowując uprawnienia i UID/GID:
 
    ```sh
    docker run --rm --network none --user 0:0 \
@@ -45,20 +39,29 @@ SQLite działa w trybie WAL. Nie kopiuj samego aktywnego `monitor.sqlite` i nie 
    (cd "$BACKUP_DIR" && sha256sum allegro-monitor-data.tar > allegro-monitor-data.tar.sha256)
    ```
 
-4. Po zakończeniu kopiowania uruchom aplikację przez **Start** lub `docker start "$APP_CONTAINER"` i sprawdź healthcheck oraz panel. Także po błędzie archiwizacji przywróć pracę zatrzymanej aplikacji; nie traktuj niekompletnego archiwum jako backupu.
+   SQLite używa WAL: nie kopiuj samego aktywnego `monitor.sqlite` ani nie pomijaj pozostałych plików `-wal` i `-shm`.
 
-## Odtworzenie najpierw do osobnego wolumenu
+4. Uruchom `docker start "$APP_CONTAINER"` i sprawdź healthcheck oraz panel. Przywróć pracę aplikacji także po błędzie kopii; niepełne archiwum nie jest backupem.
 
-Użyj obrazu powiązanego z kopią i nowej, nieużywanej nazwy wolumenu. Nie nadpisuj działającego wolumenu ani nie nakładaj archiwum na istniejącą bazę.
+## Odtworzenie testowe
+
+Użyj obrazu odpowiadającego kopii. Na innym hoście pobierz go po zapisanym SHA lub digeście i ustaw `APP_IMAGE`. Nigdy nie odtwarzaj kopii na działający wolumen.
+
+Sprawdź sumę archiwum; kontynuuj tylko po wyniku poprawnym:
 
 ```sh
 (cd "$BACKUP_DIR" && sha256sum -c allegro-monitor-data.tar.sha256)
 ```
 
-Kontynuuj tylko po poprawnej weryfikacji sumy. Przed utworzeniem wolumenu upewnij się, że wybrana nazwa jeszcze nie istnieje (`docker volume inspect NAZWA`):
+Wybierz nową nazwę wolumenu:
 
 ```sh
 RESTORE_VOLUME="allegro-monitor-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+```
+
+Sprawdź `docker volume inspect "$RESTORE_VOLUME"`. Kontynuuj tylko wtedy, gdy wolumen nie istnieje:
+
+```sh
 docker volume create "$RESTORE_VOLUME" &&
 docker run --rm --network none --user 0:0 \
   --mount "type=volume,src=$RESTORE_VOLUME,dst=/data" \
@@ -67,7 +70,7 @@ docker run --rm --network none --user 0:0 \
   -xpf /backup/allegro-monitor-data.tar -C /data
 ```
 
-Przed uruchomieniem sprawdź SQLite na odtworzonym wolumenie, jako domyślny użytkownik `node`:
+Sprawdź integralność bazy jako domyślny użytkownik obrazu:
 
 ```sh
 docker run --rm --network none \
@@ -83,7 +86,7 @@ if (integrity.length !== 1 || integrity[0].integrity_check !== "ok" || foreignKe
 '
 ```
 
-Oczekiwany wynik: `integrity_check = ok` i pusta lista `foreign_key_check`. Następnie załaduj zachowane `APP_USERNAME`, `APP_PASSWORD` i `APP_SESSION_SECRET` do środowiska powłoki z chronionego źródła. Uruchom próbę bez Telegrama, portów hosta i publicznego tunelu:
+Oczekiwane: `integrity_check = ok`, brak naruszeń `foreign_key_check`. Po poprawnym wyniku załaduj zachowane dane logowania i sekret do środowiska powłoki z chronionego źródła. Uruchom próbę **bez Telegrama, publicznego tunelu i portów hosta**:
 
 ```sh
 docker run -d --name allegro-monitor-restore-test --network none \
@@ -95,38 +98,29 @@ docker run -d --name allegro-monitor-restore-test --network none \
   "$APP_IMAGE"
 ```
 
-Po zakończeniu startu sprawdź healthcheck (błąd oznacza, że próba wymaga wyjaśnienia):
+Po zakończeniu startu sprawdź `/health`:
 
 ```sh
 docker exec allegro-monitor-restore-test node -e \
   "fetch('http://127.0.0.1:3000/health').then(async r=>{console.log(r.status,await r.text());if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 ```
 
-Adres `.invalid` jest wyłącznie testową wartością wymaganą przez konfigurację produkcyjną. `--network none` i brak publikacji portów izolują próbę; dostęp do API wykonuj przez `docker exec`. Pusty token wyłącza worker Telegrama bez usuwania kolejki.
+Porównaj dane z kopią: monitory, oferty, wykluczenia, urządzenia i powiązania, sesje, partie ACK oraz kolejkę Telegrama z payloadami, próbami i terminami. Sprawdź niewygasłą sesję, token urządzenia i ponowne pobranie partii przed ACK. Pusty token Telegrama pozostawia kolejkę bez wysyłki.
 
-Porównaj z punktem wykonania kopii monitory i ich ustawienia, oferty, wykluczenia, urządzenia i powiązania, hashe tokenów, sesje, zdarzenia i partie ACK oraz pełne zadania Telegrama: odbiorców, payloady, statusy, liczbę prób i terminy. Sprawdź działanie zachowanej, niewygasłej sesji oraz tokenu urządzenia, ponowny odbiór tej samej niepotwierdzonej partii i jednorazowe ACK przypisane do urządzenia. Zmiana danych logowania lub sekretu unieważnia sesje panelu; zachowanie samych rekordów nie wystarczy. Nie włączaj Telegrama w próbie odtworzenia.
+Po próbie usuń kontener: `docker rm -f allegro-monitor-restore-test`. Wolumen testowy zachowaj do decyzji o odtworzeniu lub usuń po sprawdzeniu jego nazwy.
 
-Po sprawdzeniu usuń tylko kontener testowy: `docker rm -f allegro-monitor-restore-test`. Wolumen testowy zachowaj do podjęcia decyzji o odtworzeniu albo usuń go świadomie, po upewnieniu się, że nazwa wskazuje wyłącznie próbę.
+## Aktualizacja i rollback w Portainerze
 
-## Aktualizacja i rollback
+1. Wykonaj backup. Przetestuj nowy obraz na osobnej kopii wolumenu, bez Telegrama i sieci publicznej.
+2. Po udanej publikacji w CI ustaw `IMAGE_TAG` na wybrany pełny SHA lub `latest`. Prywatny obraz wymaga dostępu Portainera do `ghcr.io` z prawem odczytu pakietu.
+3. Zaktualizuj stos z ponownym pobraniem obrazu, zachowując konfigurację i wolumen. Sprawdź healthcheck, panel i logi.
 
-Przed aktualizacją wykonaj backup, zachowaj konfigurację i SHA poprzedniego obrazu. Przetestuj nowy obraz na osobnej kopii wolumenu, nadal bez Telegrama i sieci publicznej. W Portainerze ustaw wybrany SHA w `IMAGE_TAG`, pobierz obraz ponownie i zaktualizuj stos. Sprawdź healthcheck, panel i logi; zachowaj poprzednią kopię oraz obraz.
+Rollback wymaga zgodnego **obrazu i kopii bazy**. Po migracji nie uruchamiaj starszego obrazu na zmienionej bazie bez potwierdzenia zgodności. Odtwórz kopię sprzed aktualizacji do nowego wolumenu, przetestuj ją z właściwym obrazem, zatrzymaj aplikację i zmień obraz oraz wolumen w stosie. Zachowaj poprzedni wolumen do potwierdzenia wyniku. Dane wrócą do chwili backupu; wznowienie Telegrama może powtórzyć wiadomości wysłane później.
 
-Rollback wymaga **zgodnego zestawu obrazu i kopii bazy**. Po migracji nie uruchamiaj starszego obrazu na zmienionej bazie bez potwierdzenia zgodności. Odtwórz kopię sprzed aktualizacji do nowego wolumenu, przetestuj z odpowiadającym jej obrazem, a dopiero potem zatrzymaj aplikację i zmień w stosie Portainera zarówno obraz, jak i wskazanie wolumenu. Nie usuwaj starego wolumenu przed potwierdzeniem wyniku. Odtworzenie cofa dane do chwili backupu; po ponownym włączeniu Telegrama zadania wysłane po tej chwili mogą spowodować powtórne wiadomości.
+Schemat SQLite jest wersjonowany przez `PRAGMA user_version`. Wersja `0` oznacza brak numerowania, także w historycznych bazach. Migracja `0→1` zachowuje dotychczasowe reguły; każdy krok jest atomowy. Błąd wycofuje zmiany, umożliwiając ponowienie startu. Zakończone migracje nie są powtarzane, a przyszła wersja blokuje start. Nie zmieniaj numeru ręcznie.
 
-## Wersja schematu SQLite
+## Zakres sprawdzonej procedury
 
-Aplikacja zapisuje wersję schematu w `PRAGMA user_version`. Wartość `0` oznacza brak numerowania: dotyczy zarówno pustej bazy, jak i wcześniej używanych, wspieranych schematów. Migracja `0→1` stosuje dotychczasowe reguły aktualizacji. Każdy krok wraz z zapisem wersji jest jedną transakcją; błąd wycofuje schemat, dane i numer wersji. Po usunięciu przyczyny można ponowić start.
+Próba z 2026-11-14: rootless Podman 6.1.3, Linux amd64, SQLite 3.54.1, obraz z commita `84faf3e0814c8b8d1f13f4e89bc375d0bb1adb1b`. Wyłącznie sztuczne dane i osobne wolumeny, bez sieci i Telegrama; bez testowania interfejsu Portainera ani silnika Docker.
 
-Zakończone migracje nie są ponawiane. Baza z wersją nowszą niż obsługiwana blokuje start bez zmiany schematu i danych. Nie zmieniaj ręcznie `user_version`, aby wymusić uruchomienie starszego obrazu; rollback nadal wymaga obrazu zgodnego z kopią bazy sprzed aktualizacji.
-
-## Wykonana próba
-
-Próba z 2026-11-14: rootless Podman 6.1.3 na Linux amd64, obraz zbudowany z commita `84faf3e0814c8b8d1f13f4e89bc375d0bb1adb1b`, SQLite 3.54.1. Użyto dwóch nowych wolumenów, danych syntetycznych, `--network none`, bez portów hosta, tunelu i tokenu Telegrama. Sprawdzono operacje kontenerowe odpowiadające powyższym poleceniom; nie sprawdzano silnika Docker ani interfejsu Portainera.
-
-- Po odtworzeniu pełna zawartość wolumenu, sumy plików, UID/GID i tryby dostępu były identyczne. Aplikacja źródłowa została ponownie uruchomiona po backupie.
-- Przed i po starcie odtworzonej aplikacji: `integrity_check = ok`, brak naruszeń `foreign_key_check`, identyczne rekordy wszystkich 9 tabel: 2 monitory, 3 oferty, 1 wykluczenie, 2 urządzenia, 4 powiązania, 1 sesja, 2 zdarzenia, 1 partia ACK i 6 zadań Telegrama.
-- Działały zachowana sesja i tokeny urządzeń, ponowne pobranie tej samej partii oraz ACK wyłącznie właściwego urządzenia i tylko raz. Zachowano ustawienia monitorów i wyciszenie urządzenia.
-- Bez tokenu kolejka Telegrama pozostała niezmieniona, także payloady, próby i terminy. Osobno, bez wysyłki, potwierdzono odzyskanie zadań oczekujących i z wygasłą dzierżawą. Healthcheck odtworzonej aplikacji przeszedł.
-
-Usunięto wyłącznie testowe kontenery i wolumeny. Próba nie obejmowała produkcji ani rzeczywistych powiadomień Telegrama.
+Odtworzono identyczne pliki, uprawnienia i dane wszystkich 9 tabel. Integralność i klucze obce poprawne; działały sesja, tokeny, ponawianie partii i ACK. Kolejka Telegrama pozostała niezmieniona, zadania oczekujące i po wygasłej dzierżawie były dostępne. Healthcheck przeszedł. Produkcja nie była objęta próbą.

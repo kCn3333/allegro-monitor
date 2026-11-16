@@ -7,144 +7,54 @@
 [![SQLite 3](https://img.shields.io/badge/SQLite-3-74c7ec?style=flat-square&logo=sqlite&logoColor=74c7ec&labelColor=131b26)](https://sqlite.org/)
 [![Docker GHCR](https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=2496ED&labelColor=131b26)](https://github.com/kCn3333/allegro-monitor/pkgs/container/allegro-monitor)
 
-Allegro Monitor wykrywa nowe oferty i produkty w zapisanych wyszukiwaniach Allegro. Rozszerzenie przeglądarki odczytuje wyniki z otwartych kart, a backend zapisuje je w SQLite i udostępnia panel aplikacji. Powiadomienia są dostępne w rozszerzeniu oraz opcjonalnie w Telegramie.
+Allegro Monitor śledzi nowe oferty w zapisanych wyszukiwaniach Allegro. Rozszerzenie Chromium odczytuje wyniki z otwartych kart, a aplikacja zapisuje je w SQLite i udostępnia panel zarządzania. Projekt powstał z myślą o wyszukiwaniu rzadkich książek.
 
-Rozszerzenie używa Chromium Manifest V3; instrukcja instalacji w panelu dotyczy Vivaldi.
+## Funkcje
 
-[Historia wydań](CHANGELOG.md) · [Uruchomienie](#uruchomienie-w-dockerze) · [Konfiguracja](#konfiguracja) · [Rozszerzenie](#instalacja-i-parowanie-rozszerzenia) · [Licencja MIT](LICENSE)
+- Monitorowanie wyszukiwań co 1, 5, 15, 30 lub 60 minut.
+- Lista nowych ofert z cenami, miniaturami i linkami do Allegro.
+- Powiadomienia przeglądarkowe i opcjonalnie Telegram.
+- Wykluczanie niechcianych ofert, wstrzymywanie monitorów i wyciszanie powiadomień.
+- Wspólne monitory na wielu urządzeniach oraz zarządzanie ich dostępem.
 
-## Zasady działania
+**Przeglądarka i karty wyszukiwań muszą pozostać otwarte, a komputer aktywny.** Backend sam nie pobiera ofert. Pierwsze sprawdzenie zapisuje stan początkowy bez powiadomień. Captcha wymaga ręcznej interwencji.
 
-- Pierwsze sprawdzenie zapisuje stan początkowy bez powiadomień. Kolejne wykrywają nowe identyfikatory ofert i produktów. Oznaczenie „Nowa” dotyczy ostatniego udanego sprawdzenia.
-- Rozszerzenie odświeża karty kolejno, zgodnie z interwałem monitora: 1, 5, 15, 30 lub 60 minut. Adres karty musi odpowiadać zapisanemu wyszukiwaniu, łącznie z kategorią, filtrami i paginacją.
-- Przeglądarka i karta wyszukiwania muszą pozostać otwarte, a komputer nie może być uśpiony. Karta nie musi być aktywna. Backend sam nie pobiera wyników z Allegro.
-- Monitory i wykluczenia są wspólne dla sparowanych urządzeń. Synchronizacja odbywa się co minutę. Wyciszenie powiadomień na urządzeniu nie zatrzymuje sprawdzania.
-- Captcha lub blokada Allegro przerywa bieżący cykl i wymaga interwencji użytkownika. Po błędzie lub przerwaniu workera ponowna automatyczna próba następuje po co najmniej 10 minutach albo po dłuższym interwale monitora.
-- Urządzenia sprawdzają wyszukiwania niezależnie; aplikacja nie koordynuje ich harmonogramów.
+## Uruchomienie
 
-## Uruchomienie w Dockerze
+Potrzebujesz Docker Compose lub Portainera oraz adresu HTTPS prowadzącego do aplikacji przez reverse proxy lub tunel.
 
-Wymagane są Docker Compose i adres HTTPS prowadzący do aplikacji przez reverse proxy lub tunel.
+1. Pobierz [compose.yml](compose.yml) i [.env.example](.env.example) do jednego katalogu. Skopiuj `.env.example` jako `.env` i uzupełnij wymagane ustawienia poniżej. W Portainerze użyj pliku Compose i ustaw zmienne stosu.
+2. Jeśli obraz GHCR jest prywatny, skonfiguruj dostęp do `ghcr.io` z uprawnieniem odczytu pakietu.
+3. Uruchom stos w Portainerze albo wykonaj:
 
-1. Skopiuj konfigurację:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Uzupełnij `APP_PUBLIC_URL`, `APP_USERNAME`, `APP_PASSWORD` i `APP_SESSION_SECRET`. Telegram jest opcjonalny również w dostarczonym Compose. Aby otrzymywać wiadomości, ustaw `TELEGRAM_BOT_TOKEN` oraz odbiorców w `TELEGRAM_CHAT_IDS` (lub starszej zmiennej `TELEGRAM_CHAT_ID`).
-3. Uruchom aplikację:
-
-   ```bash
+   ```sh
    docker compose up -d
    ```
 
-[compose.yml](compose.yml) pobiera obraz `ghcr.io/kcn3333/allegro-monitor:latest`. Dane SQLite są zapisywane w trwałym wolumenie `allegro-monitor-data`. Domyślny port aplikacji to `3000`.
+4. Zaloguj się do panelu, otwórz **Rozszerzenie**, pobierz ZIP i rozpakuj go do stałego katalogu. W `vivaldi://extensions` włącz tryb dewelopera i załaduj rozpakowany katalog.
+5. Wygeneruj w panelu kod parowania (ważny 10 minut), wpisz go w rozszerzeniu i dodaj otwartą kartę wyszukiwania Allegro.
 
-### Ręczna aktualizacja przez Portainera
+### Najważniejsze ustawienia
 
-Workflow [CI](.github/workflows/ci.yml) uruchamia testy i buduje aplikację, a po zmianach w `main` publikuje obraz GHCR z tagami `latest` oraz pełnym SHA commita.
-
-[Biome 2.6.8](https://github.com/biomejs/biome/releases/tag/@biomejs%2Fbiome@2.6.8) jest przypięty jako zależność deweloperska. `npm run format` formatuje backend, testy oraz skrypty panelu i rozszerzenia, `npm run format:check` sprawdza format bez zapisu, a `npm run lint` wykrywa błędy; obie kontrole blokują CI. Zakres kontroli to `src/**/*.ts`, `test/**/*.ts`, `public/**/*.js` i `extension/**/*.js`, włącznie z testami przeglądarkowymi. Pliki HTML/CSS, manifest rozszerzenia i inne zasoby pozostają poza zakresem. Styl: 2 spacje, podwójne cudzysłowy i średniki. Sześć reguł wykrywa nieosiągalny kod, niebezpieczne instrukcje w `finally`, powtórzone parametry, `debugger`, porównania wartości z samą sobą i błędne porównania z `-0`. Automatyczna organizacja importów jest wyłączona; formatowanie nie uruchamia poprawek lintu. Zależności, wygenerowane pliki i raporty są wykluczone.
-
-`npm run test:coverage` uruchamia ten sam zestaw co `npm test` i mierzy pokrycie backendu (`src/**/*.ts`), także plików niezaładowanych przez testy, z mapowaniem do źródeł TypeScript. Jedynym wyłączonym plikiem źródłowym jest `src/types.ts`: zawiera wyłącznie deklaracje interfejsów, bez kodu wykonywanego w runtime. Pozostałe pliki, w tym `main.ts`, trasy i renderery, pozostają objęte pomiarem. Pomiar nie obejmuje rozszerzenia ani skryptów przeglądarkowych. Podsumowanie jest wyświetlane w konsoli, a raporty HTML (`coverage/index.html`) i LCOV (`coverage/lcov.info`) są dostępne lokalnie oraz w artefakcie CI `backend-coverage-<SHA>`, również po niepowodzeniu testów, jeśli zostały wygenerowane. Nie obowiązuje próg pokrycia. CI wykonuje zestaw tylko raz, w wariancie z pokryciem; testy przeglądarkowe pozostają osobną kontrolą.
-
-Override w `package.json` jest ograniczony do drzewa `c8 → test-exclude`: wymusza poprawiony `minimatch` 11 oraz zgodny z jego API `glob` 14. c8 12 i test-exclude 8 nie udostępniają jeszcze zgodnej aktualizacji tych zależności. Sprawdzono używane API (`minimatch`, `glob` i `glob.sync`), działanie na Node 22 oraz niezmieniony zakres raportów. Zależności produkcyjne pozostają bez zmian.
-
-Przed publikacją Trivy skanuje pakiety systemowe i zależności aplikacji w końcowym obrazie runtime. Podatności HIGH/CRITICAL z dostępną poprawką oraz błędy skanera lub pobierania bazy blokują publikację. Pełny raport JSON, obejmujący wszystkie poziomy i podatności bez poprawki, jest zapisywany jako artefakt `trivy-report-<SHA>` także po odrzuceniu obrazu. Po zatwierdzeniu publikowany jest ten sam lokalny obraz, bez ponownego budowania.
-
-Aktualizację wykonuje się ręcznie w Portainerze:
-
-1. Poczekaj na pomyślne zakończenie publikacji obrazu w CI. Dla prywatnego obrazu Portainer musi mieć skonfigurowany dostęp do rejestru `ghcr.io` z uprawnieniem odczytu pakietu.
-2. W zmiennych środowiskowych stosu ustaw `IMAGE_TAG` na `latest` albo pełny SHA wybranego, opublikowanego commita. Compose użyje obrazu `ghcr.io/kcn3333/allegro-monitor:<IMAGE_TAG>`.
-3. Zaktualizuj stos z włączonym ponownym pobraniem obrazu, zachowując pozostałe zmienne, porty i wolumen danych. Po aktualizacji sprawdź stan kontenera oraz dostęp do panelu.
-
-Przed aktualizacją wykonaj [backup i próbne odtworzenie](docs/operations.md). Dokument opisuje też zgodność obrazu z bazą przy rollbacku.
-
-## Konfiguracja
-
-Aplikacja odczytuje `.env` przy starcie. Zmienne przekazane w środowisku mają pierwszeństwo. Poniższa tabela opisuje zmienne aplikacji; dostarczony Compose przekazuje tylko wskazane w nim ustawienia.
-
-| Zmienna | Znaczenie i wartość domyślna |
+| Zmienna | Znaczenie |
 | --- | --- |
-| `APP_PUBLIC_URL` | Adres HTTPS serwera, np. `https://monitor.example.com`, bez ścieżki, parametrów, fragmentu i danych logowania. Wymagany w produkcji oraz do wygenerowania rozszerzenia. |
-| `APP_USERNAME`, `APP_PASSWORD` | Dane logowania do panelu. Wymagane w produkcji. |
-| `APP_SESSION_SECRET` | Sekret sesji; w produkcji co najmniej 32 losowe znaki. |
-| `TELEGRAM_BOT_TOKEN` | Opcjonalny token bota, także przy uruchomieniu przez Compose. Wiadomości wymagają tokenu i co najmniej jednego odbiorcy; bez tokenu backend i powiadomienia rozszerzenia działają nadal. |
-| `TELEGRAM_CHAT_IDS`, `TELEGRAM_CHAT_ID` | Lista odbiorców oddzielonych przecinkami. `TELEGRAM_CHAT_IDS` ma pierwszeństwo; tylko jej brak lub pusty ciąg powoduje użycie starszej `TELEGRAM_CHAT_ID`. Elementy są przycinane, duplikaty i niepoprawne wpisy pomijane. Niepusta, lecz niepoprawna wartość nie uruchamia fallbacku. |
-| `DATABASE_PATH` | Ścieżka bazy SQLite: lokalnie `./data/monitor.sqlite`; w Compose ustawiona na `/app/data/monitor.sqlite`. |
-| `EXTENSION_DIRECTORY` | Katalog szablonu rozszerzenia z manifestem, skryptami i ikonami. Domyślnie `./extension`, względem katalogu roboczego. Niepusta błędna ścieżka nie jest zastępowana domyślną i może uniemożliwić start. |
-| `LISTING_RETENTION_CHECKS` | Liczba kolejnych udanych sprawdzeń bez danej oferty, po której jej zapis jest usuwany. Domyślnie `5`; efektywne minimum to `2`. Wartość `1` oznacza `2`, a brak, pusta wartość, zero, liczba ujemna, ułamek lub wartość nienumeryczna oznaczają `5`. |
-| `APP_TIME_ZONE` | Strefa czasowa panelu. Brak lub pusta wartość oznaczają `Europe/Warsaw`. Nieprawidłowa niepusta strefa nie uruchamia fallbacku i może powodować błędy formatowania dat. |
-| `HOST` | Adres nasłuchu aplikacji. Brak lub pusta wartość oznaczają `0.0.0.0`. Dostarczony Compose ustawia go na stałe. |
-| `PORT` | Port nasłuchu aplikacji, domyślnie `3000`. Brak, pusta wartość, zero, liczba ujemna, ułamek lub wartość nienumeryczna oznaczają `3000`. Dostarczony Compose wyznacza go przez `APP_PORT`. |
-| `TRUST_PROXY` | Opcjonalna lista zaufanych adresów IP lub zakresów CIDR rozdzielonych przecinkami (IPv4/IPv6). Domyślnie pusta: `trustProxy=false`. Nie przyjmuje wartości logicznych, liczby hopów ani zakresów `/0`; błędna konfiguracja zatrzymuje start aplikacji. |
+| `APP_PUBLIC_URL` | Wymagany adres HTTPS aplikacji, bez ścieżki, parametrów i danych logowania. |
+| `APP_USERNAME`, `APP_PASSWORD` | Wymagane dane logowania do panelu. |
+| `APP_SESSION_SECRET` | Wymagany sekret: co najmniej 32 losowe znaki. Zachowaj go między aktualizacjami. |
+| `TELEGRAM_BOT_TOKEN` | Opcjonalny token bota. Wiadomości wymagają także odbiorców; bez tokenu aplikacja i powiadomienia rozszerzenia działają nadal. |
+| `TELEGRAM_CHAT_IDS` | Odbiorcy rozdzieleni przecinkami. Ma pierwszeństwo nad starszym `TELEGRAM_CHAT_ID`; fallback działa tylko przy braku lub pustej wartości. Odbiorca musi rozpocząć rozmowę z botem lub dodać go do grupy. |
+| `APP_TIME_ZONE` | Strefa czasowa panelu, domyślnie `Europe/Warsaw`. |
+| `LISTING_RETENTION_CHECKS` | Usunięcie oferty po tylu udanych sprawdzeniach bez niej. Domyślnie `5`, minimum `2`; `1` daje `2`, brak lub niepoprawna wartość daje `5`. |
+| `TRUST_PROXY` | Opcjonalne zaufane adresy IP/CIDR rozdzielone przecinkami. Puste wyłącza zaufanie do proxy. Błędne wpisy, `true`, liczba hopów i `/0` blokują start. |
+| `APP_PORT`, `BIND_ADDRESS` | Ustawienia Compose: port (`3000`) i interfejs hosta (`0.0.0.0`). Udostępniaj port tylko proxy lub tunelowi. |
+| `IMAGE_TAG` | Tag obrazu GHCR: domyślnie `latest`; pełny SHA opublikowanego commita pozwala wybrać konkretną wersję. |
 
-Zmienne używane wyłącznie przez Compose, nieodczytywane przez `config.ts`:
+W `TRUST_PROXY` wpisuj rzeczywiste adresy infrastruktury widoczne z aplikacji. Proxy musi prawidłowo przekazywać `X-Forwarded-*`, bez możliwości narzucenia adresu klienta przez użytkownika. Bez tego ustawienia klienci za proxy współdzielą limity logowania i parowania.
 
-| Zmienna | Działanie w dostarczonym Compose |
-| --- | --- |
-| `APP_PORT` | Domyślnie `3000`. Ustawia `PORT` w kontenerze oraz port publikowany na hoście i docelowy port kontenera. |
-| `BIND_ADDRESS` | Domyślnie `0.0.0.0`. Adres interfejsu hosta, na którym publikowany jest port; nie zmienia `HOST` aplikacji w kontenerze. |
-| `IMAGE_TAG` | Domyślnie `latest`. Wybiera tag obrazu `ghcr.io/kcn3333/allegro-monitor`, np. pełny SHA opublikowanego commita. |
+Compose ustawia `HOST=0.0.0.0`, `PORT` z `APP_PORT` i `DATABASE_PATH=/app/data/monitor.sqlite`. Wpisy `HOST`, `PORT` i `DATABASE_PATH` w `.env` nie zmieniają tych ustawień. Dane pozostają w wolumenie `allegro-monitor-data`.
 
-Brak lub pusta wartość tych trzech zmiennych wybiera wartość domyślną. Niepuste błędne wartości nie są automatycznie poprawiane; mogą spowodować błąd mapowania portów lub pobierania obrazu.
+`EXTENSION_DIRECTORY` wskazuje katalog szablonu rozszerzenia (domyślnie `./extension`). Compose nie przekazuje tej zmiennej; obraz używa `/app/extension`. Zmiana `APP_PUBLIC_URL` wymaga restartu backendu, pobrania nowej paczki i ponownego parowania.
 
-Dostarczony Compose nadpisuje `HOST` na `0.0.0.0`, `PORT` na wartość `APP_PORT` i `DATABASE_PATH` na `/app/data/monitor.sqlite`. Wpisy `HOST`, `PORT` i `DATABASE_PATH` w pliku `.env` nie zmieniają tych ustawień kontenera. `EXTENSION_DIRECTORY` nie jest przekazywane — obraz korzysta z `/app/extension`. Pozostałe zmienne z tabeli aplikacji są przekazywane, a `APP_TIME_ZONE` ustawia również `TZ` kontenera. Sam plik `.env` nie jest kopiowany ani montowany do obrazu. Obraz uruchamia aplikację z `NODE_ENV=production`, więc obowiązują produkcyjne wymagania danych logowania, sekretu sesji i publicznego adresu HTTPS.
+Aktualizacje wykonuj ręcznie w Portainerze: wybierz `IMAGE_TAG`, pobierz obraz ponownie i zaktualizuj stos po wykonaniu kopii danych. Szczegóły: [backup i odtwarzanie](docs/operations.md).
 
-Port aplikacji powinien być dostępny wyłącznie dla reverse proxy lub tunelu. Dla proxy działającego na tym samym hoście można ustawić `BIND_ADDRESS=127.0.0.1`.
-
-Odbiorca wiadomości Telegram musi rozpocząć rozmowę z botem, np. poleceniem `/start`, albo dodać bota do grupy.
-
-## Uruchomienie lokalne
-
-Wymagane są Node.js 22.5 lub nowszy z linii 22 oraz program `zip`, używany do generowania paczki rozszerzenia.
-
-```bash
-npm ci
-cp .env.example .env
-```
-
-Uzupełnij `.env`, a następnie uruchom backend:
-
-```bash
-node --experimental-sqlite --import tsx src/main.ts
-```
-
-Panel jest dostępny pod `http://localhost:3000`. Korzystanie z rozszerzenia wymaga ustawienia `APP_PUBLIC_URL` i udostępnienia backendu pod tym adresem HTTPS.
-
-## Instalacja i parowanie rozszerzenia
-
-1. Zaloguj się do panelu i otwórz stronę `/extension`.
-2. Pobierz ZIP i rozpakuj go w stałym katalogu.
-3. Otwórz `vivaldi://extensions`, włącz „Tryb dewelopera” i wybierz „Załaduj rozpakowane”. Wskaż katalog z rozpakowaną paczką.
-4. W panelu wygeneruj kod parowania i wpisz go w oknie rozszerzenia. Kod jest jednorazowy i ważny przez 10 minut.
-5. Otwórz wyszukiwanie Allegro, wybierz w rozszerzeniu „Monitoruj tę kartę” i ustaw interwał.
-
-Serwer przechowuje maksymalnie 100 aktywnych kodów parowania. Po osiągnięciu limitu generowanie zwraca `429` z `Retry-After` w sekundach do najbliższego wygaśnięcia. Kolejne kody nie unieważniają wcześniejszych; miejsce zwalnia się po zużyciu lub wygaśnięciu kodu.
-
-Backend generuje paczkę przy starcie na podstawie `APP_PUBLIC_URL`. ZIP zawiera adres serwera, uprawnienia dla jego domeny oraz wymagane zasoby, w tym lokalne ikony. Hasła, tokeny i plik `.env` nie są dołączane. Katalog `extension/` w repozytorium jest szablonem; do instalacji służy paczka pobrana z panelu.
-
-Adres serwera w rozszerzeniu jest tylko do odczytu. Po zmianie `APP_PUBLIC_URL` uruchom ponownie backend, pobierz nową paczkę, przeładuj rozszerzenie i sparuj je ponownie. Token poprzedniego serwera nie jest wysyłany pod nowy adres.
-
-## Dostęp i urządzenia
-
-Panel umożliwia przeglądanie sparowanych urządzeń, zmianę ich nazw i odwoływanie dostępu. Odłączenie urządzenia natychmiast unieważnia jego token, zachowując wspólne monitory i historię. Odłączenie wszystkich urządzeń unieważnia również oczekujące kody parowania.
-
-Wygasła sesja jest odrzucana natychmiast, niezależnie od terminu fizycznego usunięcia rekordu. Sprzątanie wygasłych sesji i zakończonych zadań Telegrama starszych niż 30 dni odbywa się osobno: przy pierwszym sprawdzeniu sesji lub pobraniu zadania po uruchomieniu backendu, a następnie przy kolejnym takim wywołaniu po upływie co najmniej 5 minut.
-
-Sesje panelu i tokeny rozszerzeń są niezależne; serwer przechowuje ich hashe. Zmiana danych logowania lub sekretu unieważnia sesje panelu. Tokeny rozszerzeń nie wygasają automatycznie i wymagają osobnego odwołania.
-
-Produkcja wymaga HTTPS. Po 20 błędnych próbach logowania z jednego adresu źródłowego w ciągu 15 minut serwer blokuje kolejne próby do końca tego okresu, zwracając `429` i `Retry-After`. Parowanie dopuszcza 12 prób na adres w ciągu 15 minut; udane parowanie zeruje licznik.
-
-Bez `TRUST_PROXY` limity korzystają z adresu bezpośredniego połączenia, więc użytkownicy za wspólnym proxy współdzielą limit. Po skonfigurowaniu listy [Fastify](https://fastify.dev/docs/latest/Reference/Server/#trustproxy) ustala adres klienta z `X-Forwarded-For`, sprawdzając łańcuch od strony aplikacji do pierwszego niezaufanego adresu. Nagłówek od niezaufanego nadawcy nie zmienia adresu używanego do limitowania.
-
-Wpisz wyłącznie rzeczywiste adresy lub zakresy zaufanych proxy swojej infrastruktury, widoczne z aplikacji. Proxy musi prawidłowo przekazywać nagłówki `X-Forwarded-*`, w szczególności usuwać lub poprawnie uzupełniać `X-Forwarded-For`, aby klient nie mógł narzucić adresu. Przy wielu proxy każdy zaufany hop musi odpowiadać rzeczywistej konfiguracji sieci. Aplikacja nie zawiera domyślnej listy zaufanych proxy. Ustawienie nie dodaje zapisywania IP urządzeń.
-
-## Powiadomienia i przechowywanie danych
-
-- **Rozszerzenie:** odbiera partie do 50 zdarzeń, zapisuje je przed potwierdzeniem odbioru i usuwa duplikaty według `eventId`. Lista mieści 100 nieprzeczytanych pozycji; jej wyczyszczenie pozwala odebrać kolejne. Zdarzenia i oczekujące partie są przechowywane przez 30 dni. Potwierdzenie odbioru nie potwierdza wyświetlenia powiadomienia przez system.
-- **Telegram:** kolejka jest zapisywana razem z ofertami, osobno dla każdego odbiorcy. Wysyłka obejmuje do 12 prób, timeout 10 sekund i rosnące odstępy z uwzględnieniem `retry_after`. Przerwane zadanie można ponowić po 60 sekundach; zakończone zadania są przechowywane przez 30 dni. Niejednoznaczny wynik wysyłki może skutkować duplikatem wiadomości.
-- **Oferty i wykluczenia:** usunięcie oferty przez retencję nie zmniejsza łącznego licznika nowości. Wykluczenia dotyczą pełnego identyfikatora `offer:ID` lub `product:UUID`.
-
-Projekt jest udostępniany na [licencji MIT](LICENSE). Ikony Font Awesome podlegają [odrębnej licencji CC BY 4.0](THIRD_PARTY_NOTICES.md).
+[Praca nad kodem](docs/development.md) · [Historia zmian](CHANGELOG.md) · [Licencja MIT](LICENSE) · [Licencja ikon](THIRD_PARTY_NOTICES.md)
