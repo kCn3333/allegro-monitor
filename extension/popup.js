@@ -114,7 +114,7 @@ async function render() {
   $("#unread").innerHTML = data.unread
     .map(
       (item) =>
-        `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><span>${esc(item.monitorName)} · ${esc(item.price || "Cena nieznana")}</span></div>`,
+        `<div class="offer"><a href="${esc(item.url)}" target="_blank">${esc(item.title)}</a><div class="offer-meta"><span class="offer-monitor">${esc(item.monitorName)}</span><strong class="offer-price">${esc(item.price || "Cena nieznana")}</strong></div></div>`,
     )
     .join("");
 }

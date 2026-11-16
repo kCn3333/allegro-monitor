@@ -7,6 +7,7 @@ Daty wskazują dodanie zmian do repozytorium, nie wdrożenie na serwerze.
 ## 1.2.1 — 2026-11-16
 
 - Rozszerzenie czytelnie obsługuje tekstowe i JSON-owe błędy parowania, zachowuje status HTTP i nie zmienia istniejącego parowania po nieudanej próbie. Aktualizacja przez nadpisanie plików i przeładowanie nie wymaga ponownego parowania.
+- Ceny na liście nowych ofert są wyraźniej wyróżnione i wyrównane do prawej.
 
 ## 1.2.0 — 2026-11-14
 
