@@ -5,7 +5,10 @@ import { initializeDatabaseSchema } from "./database-schema.js";
 import { SessionsRepository } from "./repositories/sessions.js";
 import { ClientsRepository } from "./repositories/clients.js";
 import { NotificationsRepository } from "./repositories/notifications.js";
+import { TelegramRepository, type TelegramJob } from "./repositories/telegram.js";
 import type { DeviceInfo, ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
+
+export type { TelegramJob } from "./repositories/telegram.js";
 
 const MONITOR_COLUMNS = `SELECT id, name, url, interval_minutes intervalMinutes,
       enabled, initialized, last_checked_at lastCheckedAt,
@@ -19,7 +22,7 @@ export class Store {
   private readonly sessions: SessionsRepository;
   private readonly clients: ClientsRepository;
   private readonly notifications: NotificationsRepository;
-  private nextTelegramCleanupAt?: number;
+  private readonly telegram: TelegramRepository;
 
   constructor(
     databasePath: string,
@@ -41,6 +44,7 @@ export class Store {
     this.notifications = new NotificationsRepository(this.db, this.now, (monitorId, clientId) =>
       this.clients.areNotificationsEnabledForClient(monitorId, clientId),
     );
+    this.telegram = new TelegramRepository(this.db, this.now);
   }
 
   listMonitors(): Monitor[] {
@@ -278,17 +282,7 @@ export class Store {
   }
 
   claimTelegramJob(now = this.now()): TelegramJob | undefined {
-    if (this.nextTelegramCleanupAt === undefined || now >= this.nextTelegramCleanupAt) {
-      this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
-      this.nextTelegramCleanupAt = now + 5 * 60_000;
-    }
-    // Lease also recovers work interrupted by process termination. One bounded worker per process.
-    const row = this.db
-      .prepare(`UPDATE telegram_jobs SET status='sending',attempts=attempts+1,available_at=?
-      WHERE id=(SELECT id FROM telegram_jobs WHERE status IN ('pending','sending') AND available_at<=? ORDER BY id LIMIT 1)
-      RETURNING id,chat_id chatId,payload,attempts`)
-      .get(now + 60_000, now) as { id: number; chatId: string; payload: string; attempts: number } | undefined;
-    return row ? { ...row, ...JSON.parse(row.payload) } : undefined;
+    return this.telegram.claimTelegramJob(now);
   }
 
   finishTelegramJob(
@@ -296,19 +290,7 @@ export class Store {
     error?: { permanent: boolean; retryAfterMs: number; message: string },
     now = this.now(),
   ): void {
-    const terminal = !error || error.permanent || job.attempts >= 12;
-    this.db
-      .prepare(
-        "UPDATE telegram_jobs SET status=?,available_at=?,finished_at=?,last_error=? WHERE id=? AND attempts=? AND status='sending'",
-      )
-      .run(
-        !error ? "sent" : terminal ? "failed" : "pending",
-        now + Math.max(error?.retryAfterMs || 0, Math.min(3600_000, 1000 * 2 ** job.attempts)),
-        terminal ? now : null,
-        error?.message || null,
-        job.id,
-        job.attempts,
-      );
+    this.telegram.finishTelegramJob(job, error, now);
   }
 
   recentListings(
@@ -329,12 +311,4 @@ export class Store {
   close(): void {
     this.db.close();
   }
-}
-
-export interface TelegramJob {
-  id: number;
-  chatId: string;
-  monitorName: string;
-  listing: Listing;
-  attempts: number;
 }

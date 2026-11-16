@@ -20,7 +20,14 @@ const listing = {
 const iso = (time: number) => new Date(time).toISOString();
 function fixture(t: TestContext) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-clock-"));
-  const clock = { time: start, now: () => clock.time };
+  const clock = {
+    time: start,
+    reads: 0,
+    now: () => {
+      clock.reads += 1;
+      return clock.time;
+    },
+  };
   const settings = {
     ...config,
     databasePath: path.join(dir, "test.sqlite"),
@@ -189,11 +196,46 @@ test("explicit Telegram claim/completion times override the injected clock", (t)
   const { store, row, clock, enqueue } = fixture(t);
   enqueue();
   clock.time = start - 1000;
+  const reads = clock.reads;
   assert.equal(store.claimTelegramJob(), undefined);
+  assert.equal(clock.reads, reads + 1);
   const job = store.claimTelegramJob(start)!;
   assert.equal(row("SELECT available_at FROM telegram_jobs").available_at, start + 60_000);
   store.finishTelegramJob(job, undefined, start + 123);
   assert.equal(row("SELECT finished_at FROM telegram_jobs").finished_at, start + 123);
+  assert.equal(clock.reads, reads + 1); // Both explicit times bypass the injected clock.
+  store.finishTelegramJob(job);
+  assert.equal(clock.reads, reads + 2);
+  assert.equal(row("SELECT finished_at FROM telegram_jobs").finished_at, start + 123);
+});
+
+test("stale Telegram completions cannot overwrite a renewed lease, pending retry or completed job", (t) => {
+  const { store, row, clock, enqueue } = fixture(t);
+  enqueue();
+  const original = store.claimTelegramJob()!;
+  clock.time += 60000;
+  const renewed = store.claimTelegramJob()!;
+  assert.equal(renewed.id, original.id);
+  assert.equal(renewed.attempts, original.attempts + 1);
+  const leased = row("SELECT * FROM telegram_jobs");
+  for (const error of [undefined, { permanent: true, retryAfterMs: 0, message: "late failure" }]) {
+    store.finishTelegramJob(original, error);
+    assert.deepEqual(row("SELECT * FROM telegram_jobs"), leased);
+  }
+  store.finishTelegramJob(renewed, { permanent: false, retryAfterMs: 25000, message: "retry" });
+  const pending = row("SELECT * FROM telegram_jobs");
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.available_at, clock.time + 25000);
+  store.finishTelegramJob(renewed);
+  assert.deepEqual(row("SELECT * FROM telegram_jobs"), pending);
+  clock.time += 25000;
+  const retried = store.claimTelegramJob()!;
+  assert.equal(retried.attempts, renewed.attempts + 1);
+  store.finishTelegramJob(retried);
+  const finished = row("SELECT * FROM telegram_jobs");
+  assert.equal(finished.status, "sent");
+  store.finishTelegramJob(renewed, { permanent: true, retryAfterMs: 0, message: "late failure" });
+  assert.deepEqual(row("SELECT * FROM telegram_jobs"), finished);
 });
 
 for (const remember of [false, true]) {
