@@ -26,6 +26,7 @@ function harness(initial: any = {}) {
   const h: any = {
     tabs: [{ id: 1, url }],
     posts: [],
+    bodyReads: [],
     notices: [],
     reloads: [],
     effects: [],
@@ -137,7 +138,26 @@ function harness(initial: any = {}) {
       const body = JSON.parse(options.body || "{}");
       h.posts.push({ path, body });
       const result = await h.request(path, body);
-      return { ok: !result.status, status: result.status || 200, json: async () => result };
+      const response =
+        result instanceof Response
+          ? result
+          : new Response(JSON.stringify(result), {
+              status: result.status || 200,
+              headers: { "content-type": "application/json" },
+            });
+      return {
+        ok: response.ok,
+        status: response.status,
+        headers: response.headers,
+        text: async () => {
+          h.bodyReads.push({ path, method: "text" });
+          return response.text();
+        },
+        json: async () => {
+          h.bodyReads.push({ path, method: "json" });
+          return response.json();
+        },
+      };
     },
   });
   vm.runInContext(
@@ -475,8 +495,11 @@ test("parallel syncs serialize and network/auth failures preserve monitors and r
   assert.equal(h.state().connection, "offline");
   assert.equal(h.state().watched.length, 1);
   h.request = async () => ({ status: 401 });
-  assert.equal((await h.message({ type: "sync" })).ok, false);
+  const unauthorized = await h.message({ type: "sync" });
+  assert.equal(unauthorized.ok, false);
+  assert.equal(unauthorized.error, "Token odrzucony — sparuj ponownie");
   assert.equal(h.state().connection, "unauthorized");
+  assert.equal(h.state().token, "test");
 });
 
 test("adding a monitor during an outstanding sync is serialized without losing the addition", async () => {
@@ -717,11 +740,71 @@ test("pairing uses packaged configuration and clears monitors only when switchin
   for (const backendUrl of ["https://previous.example", "https://monitor.example"]) {
     const h = harness({ backendUrl });
     h.request = async () => ({ token: "replacement-token" });
-    const result = await h.message({ type: "pair", code: "ABCD-1234", backendUrl: "https://ignored.example" });
+    const result = await h.message({ type: "pair", code: " abcd-1234 ", backendUrl: "https://ignored.example" });
     assert.equal(result.ok, true);
     assert.equal(h.state().backendUrl, "https://monitor.example");
     assert.equal(h.state().token, "replacement-token");
     assert.equal(h.state().watched.length, backendUrl === "https://monitor.example" ? 1 : 0);
+    assert.deepEqual(h.posts[0].body, { code: "ABCD-1234", name: "Vivaldi test" });
+    assert.deepEqual(h.bodyReads, [{ path: "/api/extension/pair", method: "json" }]);
+  }
+});
+
+test("pairing accepts legacy text and JSON errors, reads each body once and preserves all state after failure", async () => {
+  const fallback = "Nie udało się sparować";
+  const cases: Array<[number, string, string, string]> = [
+    [400, "Kod jest nieprawidłowy lub wygasł", "text/plain", "Kod jest nieprawidłowy lub wygasł"],
+    [400, '{"error":"Kod jest nieprawidłowy lub wygasł"}', "application/json", "Kod jest nieprawidłowy lub wygasł"],
+    [429, "Zbyt wiele prób parowania", "text/plain", "Zbyt wiele prób parowania"],
+    [429, '{"error":" Zbyt wiele prób parowania "}', "application/json", "Zbyt wiele prób parowania"],
+    [400, "", "text/plain", fallback],
+    [429, " \n ", "application/json", fallback],
+    [400, '{"error":', "application/json", fallback],
+    [400, '{"error":', "text/plain", fallback],
+    [500, "not JSON", "application/json", fallback],
+    [400, '{"error":""}', "application/json", fallback],
+    [400, '{"error":"   "}', "application/json", fallback],
+    [400, '{"error":123}', "application/json", fallback],
+    [400, '{"error":false}', "application/json", fallback],
+    [400, '{"error":null}', "application/json", fallback],
+    [400, '{"error":{}}', "application/json", fallback],
+    [400, '{"error":[]}', "application/json", fallback],
+    [400, "{}", "application/json", fallback],
+    [400, "null", "application/json", fallback],
+    [400, '[{"error":"nested"}]', "application/json", fallback],
+    [400, '"message"', "application/json", fallback],
+    [400, '{"error":"JSON without MIME"}', "text/plain", "JSON without MIME"],
+  ];
+  for (const [status, body, type, expected] of cases) {
+    const h = harness({
+      backendUrl: "https://monitor.example",
+      token: "existing-token",
+      unread: [{ eventId: 7 }],
+      receivedThrough: 7,
+      connection: "paired",
+      lastSyncAt: 123,
+      notificationSnooze: { until: null, duration: "forever" },
+    });
+    const before = structuredClone(h.state());
+    h.request = async () => new Response(body, { status, headers: { "content-type": type } });
+    await assert.rejects(h.run('pair(" abcd-1234 ")'), (error: any) => {
+      assert.equal(error.message, expected);
+      assert.equal(error.status, status);
+      return true;
+    });
+    assert.deepEqual(h.state(), before);
+    assert.deepEqual(await h.message({ type: "pair", code: " abcd-1234 " }), { ok: false, error: expected });
+    assert.deepEqual(h.state(), before);
+    assert.deepEqual(
+      h.bodyReads.map((read: any) => read.method),
+      ["text", "text"],
+    );
+    assert.deepEqual(h.effects, []);
+    assert.equal(h.posts.length, 2);
+    for (const request of h.posts) {
+      assert.equal(request.path, "/api/extension/pair");
+      assert.deepEqual(request.body, { code: "ABCD-1234", name: "Vivaldi test" });
+    }
   }
 });
 

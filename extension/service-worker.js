@@ -196,7 +196,20 @@ async function pair(code) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ code: code.trim().toUpperCase(), name: `Vivaldi ${navigator.platform}` }),
     });
-    if (!response.ok) throw new Error((await response.text()) || "Nie udało się sparować");
+    if (!response.ok) {
+      const body = (await response.text().catch(() => "")).trim();
+      let message = "Nie udało się sparować";
+      try {
+        const payload = JSON.parse(body);
+        if (typeof payload?.error === "string" && payload.error.trim()) message = payload.error.trim();
+      } catch {
+        const jsonResponse = response.headers.get("content-type")?.toLowerCase().includes("json");
+        if (body && !jsonResponse && !/^(?:\{|\[|")/.test(body)) message = body;
+      }
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
+    }
     const { token } = await response.json();
     await mutateState((current) => ({
       watched: normalizeBackend(current.backendUrl) === url ? current.watched : [],
