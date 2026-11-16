@@ -68,6 +68,73 @@ test("device revocation requires a web session and same-origin POST, never a bea
   assert.equal(store.listExtensionClients().length, 2);
 });
 
+test("rejected device actions preserve stored data and single revocation preserves pending pairing codes", async (t) => {
+  const { app, store, settings, first, cookie } = await fixture(t, () => 1_800_000_000_000);
+  const code = (await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } })).json()
+    .code;
+  const db = new DatabaseSync(settings.databasePath);
+  t.after(() => db.close());
+  const snapshot = () =>
+    [
+      "extension_clients",
+      "monitor_clients",
+      "notification_batches",
+      "monitors",
+      "listings",
+      "monitor_exclusions",
+      "notification_events",
+      "telegram_jobs",
+    ].map((table) => db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+  const before = snapshot();
+  for (const url of [`/devices/${first}/rename`, `/devices/${first}/revoke`, "/devices/revoke-all"]) {
+    for (const headers of [
+      {},
+      { authorization: "Bearer first-token" },
+      { cookie, "sec-fetch-site": "cross-site" },
+      { cookie, "sec-fetch-site": "same-site" },
+    ]) {
+      const response = await app.inject({ method: "POST", url, headers, payload: { name: "Changed" } });
+      assert.equal(response.statusCode, "cookie" in headers ? 403 : 302);
+      if (!("cookie" in headers)) assert.equal(response.headers.location, "/login");
+      assert.deepEqual(snapshot(), before);
+    }
+  }
+  for (const [id, action, name, status, message] of [
+    ["0", "revoke", "Valid", 400, "Nieprawidłowy identyfikator urządzenia"],
+    ["bad", "rename", null, 400, "Nieprawidłowy identyfikator urządzenia"],
+    ["99999", "revoke", "Valid", 404, "Urządzenie nie istnieje"],
+    ["99999", "rename", "Valid", 404, "Urządzenie nie istnieje"],
+    ["99999", "rename", " ", 400, "Nazwa urządzenia musi mieć od 1 do 100 znaków"],
+    ...[null, false, [], {}, 123, "", " ", "x".repeat(101)].map((name) => [
+      String(first),
+      "rename",
+      name,
+      400,
+      "Nazwa urządzenia musi mieć od 1 do 100 znaków",
+    ]),
+  ]) {
+    const response = await app.inject({
+      method: "POST",
+      url: `/devices/${id}/${action}`,
+      headers: { cookie },
+      payload: { name },
+    });
+    assert.equal(response.statusCode, status);
+    assert.equal(response.body, message);
+    assert.deepEqual(snapshot(), before);
+  }
+  const page = await app.inject({ url: "/devices", headers: { cookie } });
+  assert.equal(page.statusCode, 200);
+  assert.equal(page.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal(page.body, renderDevices(store.listExtensionClients()));
+  const revoked = await app.inject({ method: "POST", url: `/devices/${first}/revoke`, headers: { cookie } });
+  assert.equal(revoked.statusCode, 302);
+  assert.equal(revoked.headers.location, "/devices");
+  const paired = await app.inject({ method: "POST", url: "/api/extension/pair", payload: { code } });
+  assert.equal(paired.statusCode, 200);
+  assert.ok(store.touchExtensionClient(tokenHash(paired.json().token)));
+});
+
 test("revocation rejects every authenticated extension endpoint and preserves shared data and other devices", async (t) => {
   const { app, store, settings, first, second, monitor, cookie } = await fixture(t);
   const listing = {
@@ -259,6 +326,9 @@ test("device management fails closed when panel credentials are not configured",
   for (const url of ["/devices", `/devices/${first}/rename`, `/devices/${first}/revoke`, "/devices/revoke-all"]) {
     assert.equal((await app.inject({ method: "POST", url })).statusCode, 503);
   }
+  const page = await app.inject({ url: "/devices" });
+  assert.equal(page.statusCode, 503);
+  assert.equal(page.body, "Zarządzanie urządzeniami wymaga skonfigurowanego logowania");
   assert.equal(store.listExtensionClients().length, 2);
 });
 

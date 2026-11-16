@@ -6,7 +6,6 @@ import { config } from "./config.js";
 import { publicAssets } from "./branding.js";
 import { buildExtensionPackage } from "./extension-package.js";
 import { Store } from "./database.js";
-import { renderDevices } from "./devices.js";
 import { renderExtension } from "./extension-page.js";
 import type { DeviceInfo } from "./types.js";
 import { TelegramWorker } from "./notifications.js";
@@ -20,6 +19,7 @@ import {
 import { assertAllegroUrl, validateListings } from "./validation.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPanelRoutes } from "./routes/panel.js";
+import { registerDeviceRoutes } from "./routes/devices.js";
 
 export async function buildApp(options: { now?: () => number; startWorker?: boolean; config?: typeof config } = {}) {
   const settings = options.config || config;
@@ -157,29 +157,8 @@ export async function buildApp(options: { now?: () => number; startWorker?: bool
     pruneAttempts,
   });
   registerPanelRoutes(app, { store, parseMonitorId });
-  app.post("/devices/revoke-all", async (_request, reply) => {
-    store.revokeAllExtensionClients();
-    pairingCodes.clear();
-    return reply.redirect("/devices");
-  });
-  app.post<{ Params: { id: string } }>("/devices/:id/revoke", async (request, reply) => {
-    const id = parseMonitorId(request.params.id);
-    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
-    if (!store.revokeExtensionClient(id)) return reply.code(404).send("Urządzenie nie istnieje");
-    return reply.redirect("/devices");
-  });
-  app.post<{ Params: { id: string }; Body: { name?: unknown } }>("/devices/:id/rename", async (request, reply) => {
-    const id = parseMonitorId(request.params.id);
-    if (!id) return reply.code(400).send("Nieprawidłowy identyfikator urządzenia");
-    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-    if (!name || name.length > 100) return reply.code(400).send("Nazwa urządzenia musi mieć od 1 do 100 znaków");
-    if (!store.renameExtensionClient(id, name)) return reply.code(404).send("Urządzenie nie istnieje");
-    return reply.redirect("/devices");
-  });
+  registerDeviceRoutes(app, { store, parseMonitorId, clearPairingCodes: () => pairingCodes.clear() });
 
-  app.get("/devices", async (_request, reply) =>
-    reply.type("text/html; charset=utf-8").send(renderDevices(store.listExtensionClients())),
-  );
   app.get("/extension", async (_request, reply) =>
     reply.type("text/html; charset=utf-8").send(renderExtension(latestExtensionVersion)),
   );
