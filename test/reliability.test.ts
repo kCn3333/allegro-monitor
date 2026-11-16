@@ -92,6 +92,44 @@ test("ACK is authenticated, client-bound, retry-safe and cannot skip future even
     });
   const first = await pull("a");
   assert.equal(first.notifications.length, 1);
+  const login = await app.inject({
+    method: "POST",
+    url: "/login",
+    payload: { username: settings.username, password: settings.password },
+  });
+  assert.equal(login.statusCode, 302);
+  const cookie = String(login.headers["set-cookie"]).split(";", 1)[0]!;
+  const db = new DatabaseSync(databasePath);
+  t.after(() => db.close());
+  const snapshot = () =>
+    ["extension_clients", "monitor_clients", "notification_batches", "notification_events"].map((table) =>
+      db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+    );
+  const before = snapshot();
+  for (const url of ["/api/extension/presence", "/api/extension/notifications/ack"]) {
+    for (const headers of [{}, { cookie }, { cookie, authorization: "Bearer invalid" }]) {
+      const rejected = await app.inject({
+        method: "POST",
+        url,
+        headers,
+        payload: { monitors: [{ id, open: false }], device: { os: "forged" }, batchId: first.notificationBatch },
+      });
+      assert.equal(rejected.statusCode, 401);
+      assert.deepEqual(rejected.json(), { error: "Nieprawidłowy token rozszerzenia" });
+      assert.deepEqual(snapshot(), before);
+    }
+  }
+  for (const batchId of [undefined, null, 1, false, [], {}, "x".repeat(101)]) {
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/extension/notifications/ack",
+      headers: { authorization: "Bearer a" },
+      payload: { batchId },
+    });
+    assert.equal(rejected.statusCode, 400);
+    assert.deepEqual(rejected.json(), { error: "Nieprawidłowy ACK" });
+    assert.deepEqual(snapshot(), before);
+  }
   assert.deepEqual(await pull("a"), first); // response loss replays the persisted batch
   assert.equal((await ack("invalid", first.notificationBatch)).statusCode, 401);
   assert.equal((await ack("b", first.notificationBatch)).json().acknowledged, false);
@@ -103,6 +141,95 @@ test("ACK is authenticated, client-bound, retry-safe and cannot skip future even
   assert.equal((await pull("b", 1)).notifications.length, 1);
   assert.equal((await pull("b", 1)).notifications.length, 0);
   assert.notEqual(a, b);
+});
+
+test("presence preserves synchronized fields, ID conversion, device metadata and strict protocol selection", async (t) => {
+  const { settings, databasePath, clock } = fixture(t);
+  const store = new Store(databasePath, undefined, clock.now);
+  t.after(() => store.close());
+  const id = store.createMonitor("Books", "https://allegro.pl/listing?string=books", 5);
+  clock.time += 1;
+  const paused = store.createMonitor("Paused", "https://allegro.pl/listing?string=paused", 15);
+  store.toggleMonitor(paused);
+  const client = store.addExtensionClient("a", tokenHash("a"));
+  store.setNotificationsForClient(paused, client, false);
+  store.saveCheck(store.getMonitor(id)!, []);
+  store.saveCheck(store.getMonitor(id)!, [listing(1)]);
+  const app = await buildApp({ config: settings, startWorker: false, now: clock.now });
+  t.after(() => app.close());
+  const presence = (payload: object) =>
+    app.inject({ method: "POST", url: "/api/extension/presence", headers: { authorization: "Bearer a" }, payload });
+  for (const monitors of [undefined, null, {}, "text", Array.from({ length: 101 }, () => ({ id }))]) {
+    const rejected = await presence({ monitors, device: { os: "forged" } });
+    assert.equal(rejected.statusCode, 400);
+    assert.equal(rejected.body, "Nieprawidłowa lista obecności");
+    assert.equal(store.listExtensionClients()[0]!.os, null);
+    assert.equal(store.hasMonitorClient(id, client), false);
+  }
+  const payload = {
+    monitors: [
+      { id: String(id), open: true },
+      { id, open: true },
+      { id: 0 },
+      { id: 99999 },
+      { id: "invalid" },
+      { id: paused, open: "true" },
+    ],
+    device: { extensionVersion: " 1.2.0 ", browser: " Chromium ", os: " Linux ", osVersion: " ", arch: null },
+    notificationProtocol: 2,
+  };
+  const response = await presence(payload);
+  assert.equal(response.statusCode, 200);
+  const first = response.json();
+  const version = String(
+    JSON.parse(fs.readFileSync(path.join(settings.extensionDirectory, "manifest.json"), "utf8")).version,
+  );
+  assert.deepEqual(Object.keys(first).sort(), [
+    "latestExtensionVersion",
+    "monitors",
+    "notificationBatch",
+    "notifications",
+    "updated",
+  ]);
+  assert.equal(first.updated, 3);
+  assert.equal(first.latestExtensionVersion, version);
+  assert.deepEqual(first.monitors, [
+    {
+      id: paused,
+      name: "Paused",
+      url: "https://allegro.pl/listing?string=paused",
+      intervalMinutes: 15,
+      enabled: false,
+      newListingsCount: 0,
+      lastCheckNewCount: 0,
+      activeClientsCount: 0,
+      notificationsEnabled: false,
+    },
+    {
+      id,
+      name: "Books",
+      url: "https://allegro.pl/listing?string=books",
+      intervalMinutes: 5,
+      enabled: true,
+      newListingsCount: 1,
+      lastCheckNewCount: 1,
+      activeClientsCount: 1,
+      notificationsEnabled: true,
+    },
+  ]);
+  const device = store.listExtensionClients()[0]!;
+  assert.deepEqual(
+    [device.extensionVersion, device.browser, device.os, device.osVersion, device.arch],
+    ["1.2.0", "Chromium", "Linux", null, null],
+  );
+  assert.equal(first.notifications.length, 1);
+  assert.equal(typeof first.notificationBatch, "string");
+  assert.deepEqual((await presence(payload)).json(), first);
+  const legacy = await presence({ ...payload, notificationProtocol: "2" });
+  assert.equal(legacy.statusCode, 200);
+  const { notificationBatch, ...withoutBatch } = first;
+  assert.deepEqual(legacy.json(), withoutBatch);
+  assert.equal((await presence({ monitors: [] })).json().notifications.length, 0);
 });
 
 test("notification batches are bounded, survive restart and honor per-client mute", (t) => {
