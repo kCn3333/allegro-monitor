@@ -146,8 +146,20 @@ test("global auth hook preserves public endpoints, bearer protection and login C
   for (const url of ["/api/extension/presence", "/api/extension/monitors", "/api/extension/notifications/ack"]) {
     assert.equal((await app.inject({ method: "POST", url, payload: {} })).statusCode, 401);
   }
+  const unauthenticatedCode = await app.inject({ method: "POST", url: "/api/extension/pairing-code" });
+  assert.equal(unauthenticatedCode.statusCode, 302);
+  assert.equal(unauthenticatedCode.headers.location, "/login");
   const loggedIn = await login();
   const cookie = String(loggedIn.headers["set-cookie"]).split(";", 1)[0]!;
+  for (const site of ["cross-site", "same-site"]) {
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/extension/pairing-code",
+      headers: { cookie, "sec-fetch-site": site },
+    });
+    assert.equal(rejected.statusCode, 403);
+    assert.equal(rejected.body, "Żądanie cross-site zostało odrzucone");
+  }
   const generated = await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
   assert.equal(generated.statusCode, 200);
   const paired = await app.inject({
@@ -195,4 +207,60 @@ test("auth routes use the supplied pairing attempts map and clock for shared cap
   assert.equal(blocked.headers["set-cookie"], undefined);
   attempts.clear();
   assert.equal((await login()).statusCode, 302);
+});
+
+test("login and pairing share limiter capacity and successful requests release their entries", async (t) => {
+  const { app, db } = await fixture(t);
+  app.log.level = "silent";
+  const loggedIn = await app.inject({
+    method: "POST",
+    url: "/login",
+    payload: { username: "owner", password: "password" },
+  });
+  assert.equal(loggedIn.statusCode, 302);
+  const cookie = String(loggedIn.headers["set-cookie"]).split(";", 1)[0]!;
+  const generated = await app.inject({ method: "POST", url: "/api/extension/pairing-code", headers: { cookie } });
+  assert.equal(generated.statusCode, 200);
+  const code = generated.json().code;
+  for (let i = 0; i < 9999; i++) {
+    const failed = await app.inject({
+      method: "POST",
+      url: "/login",
+      remoteAddress: `192.0.${i >> 8}.${i % 256}`,
+      payload: { username: "owner", password: "wrong" },
+    });
+    assert.equal(failed.statusCode, 401);
+  }
+  const pair = (value: string, remoteAddress = "198.51.100.1") =>
+    app.inject({ method: "POST", url: "/api/extension/pair", remoteAddress, payload: { code: value } });
+  assert.equal((await pair("invalid")).statusCode, 400);
+  const blockedLogin = await app.inject({
+    method: "POST",
+    url: "/login",
+    remoteAddress: "203.0.113.1",
+    payload: { username: "owner", password: "password" },
+  });
+  assert.equal(blockedLogin.statusCode, 429);
+  assert.equal(blockedLogin.headers["retry-after"], "900");
+  const blockedPair = await pair(code, "198.51.100.2");
+  assert.equal(blockedPair.statusCode, 429);
+  assert.equal(blockedPair.body, "Zbyt wiele prób parowania");
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM extension_clients").get()!.count, 0);
+  const successfulLogin = await app.inject({
+    method: "POST",
+    url: "/login",
+    remoteAddress: "192.0.0.0",
+    payload: { username: "owner", password: "password" },
+  });
+  assert.equal(successfulLogin.statusCode, 302);
+  const paired = await pair(code, "198.51.100.2");
+  assert.equal(paired.statusCode, 200);
+  assert.equal(typeof paired.json().token, "string");
+  const afterPair = await app.inject({
+    method: "POST",
+    url: "/login",
+    remoteAddress: "203.0.113.1",
+    payload: { username: "owner", password: "wrong" },
+  });
+  assert.equal(afterPair.statusCode, 401);
 });
