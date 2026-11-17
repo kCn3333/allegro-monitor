@@ -162,7 +162,7 @@ test("presence preserves synchronized fields, ID conversion, device metadata and
   for (const monitors of [undefined, null, {}, "text", Array.from({ length: 101 }, () => ({ id }))]) {
     const rejected = await presence({ monitors, device: { os: "forged" } });
     assert.equal(rejected.statusCode, 400);
-    assert.equal(rejected.body, "Nieprawidłowa lista obecności");
+    assert.deepEqual(rejected.json(), { error: "Nieprawidłowa lista obecności" });
     assert.equal(store.listExtensionClients()[0]!.os, null);
     assert.equal(store.hasMonitorClient(id, client), false);
   }
