@@ -77,7 +77,7 @@ test("invalid API monitor names return a generic 400 without creating, updating 
         payload: { name, url: target, intervalMinutes: 60 },
       });
       assert.equal(response.statusCode, 400, JSON.stringify(name));
-      assert.equal(response.body, "Nieprawidłowe dane monitora");
+      assert.deepEqual(response.json(), { error: "Nieprawidłowe dane monitora" });
       assert.deepEqual(snapshot(), before);
     }
   }
@@ -88,7 +88,7 @@ test("invalid API monitor names return a generic 400 without creating, updating 
     payload: { name: 123, url, intervalMinutes: { toString: null, valueOf: null } },
   });
   assert.equal(response.statusCode, 400);
-  assert.equal(response.body, "Nieprawidłowe dane monitora");
+  assert.deepEqual(response.json(), { error: "Nieprawidłowe dane monitora" });
   assert.deepEqual(snapshot(), before);
 });
 
@@ -208,10 +208,9 @@ test("monitor creation keeps bearer authentication and interval validation, whil
       payload: { name: "Valid", url: invalidUrl, intervalMinutes: 5 },
     });
     assert.equal(response.statusCode, 400);
-    assert.equal(
-      response.body,
-      invalidUrl === "not a URL" ? "Invalid URL" : "Dozwolone są wyłącznie adresy HTTPS w domenie allegro.pl",
-    );
+    assert.deepEqual(response.json(), {
+      error: invalidUrl === "not a URL" ? "Invalid URL" : "Dozwolone są wyłącznie adresy HTTPS w domenie allegro.pl",
+    });
     assert.deepEqual(snapshot(), before);
   }
   for (const intervalMinutes of [0, 2, 10, 61]) {
