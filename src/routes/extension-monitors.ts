@@ -23,6 +23,13 @@ const resultsSchema = {
   properties: { listings: { type: "array", maxItems: 200, items: {} } },
 };
 
+const notificationStateSchema = {
+  type: "object",
+  required: ["enabled"],
+  additionalProperties: true,
+  properties: { enabled: { type: "boolean" } },
+};
+
 // Legacy error reports accept any body and message type, including a missing body.
 const errorReportSchema = {};
 
@@ -153,14 +160,20 @@ export function registerExtensionMonitorRoutes(
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>(
+  app.post<{ Params: { id: string }; Body: { enabled: boolean } }>(
     "/api/extension/monitors/:id/notification-state",
+    {
+      schema: { body: notificationStateSchema },
+      validatorCompiler: ({ schema }) => validator.compile(schema),
+      attachValidation: true,
+      errorHandler: jsonInputErrorHandler,
+    },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
       const id = parseMonitorId(request.params.id);
-      if (!id || typeof request.body?.enabled !== "boolean") return reply.code(400).send("Nieprawidłowy stan monitora");
-      if (!store.getMonitor(id)) return reply.code(404).send("Monitor nie istnieje");
+      if (!id || request.validationError) return reply.code(400).send({ error: "Nieprawidłowy stan monitora" });
+      if (!store.getMonitor(id)) return reply.code(404).send({ error: "Monitor nie istnieje" });
       store.setNotificationsForClient(id, clientId, request.body.enabled);
       return reply.send({ enabled: request.body.enabled });
     },

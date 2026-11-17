@@ -285,8 +285,7 @@ test("monitor API routes require Bearer and preserve endpoint-specific ID and ac
           : action === "notification-state"
             ? "Nieprawidłowy stan monitora"
             : "Nieprawidłowy identyfikator monitora";
-      if (action === "notification-state") assert.equal(response.body, message);
-      else assert.deepEqual(response.json(), { error: message });
+      assert.deepEqual(response.json(), { error: message });
       assert.deepEqual(snapshot(), before);
     }
   }
@@ -335,7 +334,7 @@ test("notification state links an unlinked client, while errors accept paused mo
   for (const enabled of [undefined, null, 0, "false", [], {}]) {
     const response = await post("notification-state", { enabled });
     assert.equal(response.statusCode, 400);
-    assert.equal(response.body, "Nieprawidłowy stan monitora");
+    assert.deepEqual(response.json(), { error: "Nieprawidłowy stan monitora" });
     assert.deepEqual(snapshot(), before);
   }
   const state = await post("notification-state", { enabled: true });
