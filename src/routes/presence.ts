@@ -1,5 +1,5 @@
 import { Ajv } from "ajv";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store } from "../database.js";
 import type { DeviceInfo } from "../types.js";
 
@@ -25,6 +25,20 @@ const presenceSchema = {
     },
   },
 };
+
+const acknowledgementSchema = {
+  type: "object",
+  required: ["batchId"],
+  additionalProperties: true,
+  properties: { batchId: { type: "string", maxCodeUnits: 100 } },
+};
+
+function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
+  if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
+    return reply.code(400).send({ error: "Nieprawidłowy JSON" });
+  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
+  return reply.send(error);
+}
 
 interface PresenceRouteDependencies {
   store: Store;
@@ -53,12 +67,7 @@ export function registerPresenceRoutes(
       schema: { body: presenceSchema },
       validatorCompiler: ({ schema }) => validator.compile(schema),
       attachValidation: true,
-      errorHandler(error, _request, reply) {
-        if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
-          return reply.code(400).send({ error: "Nieprawidłowy JSON" });
-        if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
-        return reply.send(error);
-      },
+      errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
@@ -117,13 +126,21 @@ export function registerPresenceRoutes(
     },
   );
 
-  app.post<{ Body: { batchId?: string } }>("/api/extension/notifications/ack", async (request, reply) => {
-    const clientId = extensionClientId(request, reply);
-    if (!clientId) return;
-    const batchId = request.body?.batchId;
-    if (typeof batchId !== "string" || batchId.length > 100)
-      return reply.code(400).send({ error: "Nieprawidłowy ACK" });
-    // Repeated/unknown ACK is a safe no-op; it cannot advance any cursor.
-    return { acknowledged: store.acknowledgeNotifications(clientId, batchId) };
-  });
+  app.post<{ Body: { batchId: string } }>(
+    "/api/extension/notifications/ack",
+    {
+      schema: { body: acknowledgementSchema },
+      validatorCompiler: ({ schema }) => validator.compile(schema),
+      attachValidation: true,
+      errorHandler: jsonInputErrorHandler,
+    },
+    async (request, reply) => {
+      const clientId = extensionClientId(request, reply);
+      if (!clientId) return;
+      if (request.validationError) return reply.code(400).send({ error: "Nieprawidłowy ACK" });
+      const batchId = request.body.batchId;
+      // Repeated/unknown ACK is a safe no-op; it cannot advance any cursor.
+      return { acknowledged: store.acknowledgeNotifications(clientId, batchId) };
+    },
+  );
 }
