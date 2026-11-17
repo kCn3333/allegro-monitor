@@ -279,14 +279,14 @@ test("monitor API routes require Bearer and preserve endpoint-specific ID and ac
         payload,
       });
       assert.equal(response.statusCode, invalidId === "99999" ? 404 : 400);
-      assert.equal(
-        response.body,
+      const message =
         invalidId === "99999"
           ? missingMessage
           : action === "notification-state"
             ? "Nieprawidłowy stan monitora"
-            : "Nieprawidłowy identyfikator monitora",
-      );
+            : "Nieprawidłowy identyfikator monitora";
+      if (action === "notification-state") assert.equal(response.body, message);
+      else assert.deepEqual(response.json(), { error: message });
       assert.deepEqual(snapshot(), before);
     }
   }
@@ -304,7 +304,7 @@ test("results renew presence and clear a closed-tab error before rejecting inval
     payload: { listings: {} },
   });
   assert.equal(response.statusCode, 400);
-  assert.equal(response.body, "Nieprawidłowa lista ofert");
+  assert.deepEqual(response.json(), { error: "Nieprawidłowa lista ofert" });
   assert.equal(store.listMonitors()[0]!.activeClientsCount, 1);
   assert.deepEqual({ ...store.getMonitor(id) }, { ...before, lastError: null });
   assert.deepEqual(store.recentListings(), []);
@@ -324,12 +324,12 @@ test("notification state links an unlinked client, while errors accept paused mo
   for (const action of ["results", "error"]) {
     const response = await post(action, { listings: [], message: "failed" });
     assert.equal(response.statusCode, 404);
-    assert.equal(
-      response.body,
-      action === "results"
-        ? "Monitor nie istnieje lub jest wyłączony"
-        : "Monitor nie istnieje lub nie należy do tego rozszerzenia",
-    );
+    assert.deepEqual(response.json(), {
+      error:
+        action === "results"
+          ? "Monitor nie istnieje lub jest wyłączony"
+          : "Monitor nie istnieje lub nie należy do tego rozszerzenia",
+    });
     assert.deepEqual(snapshot(), before);
   }
   for (const enabled of [undefined, null, 0, "false", [], {}]) {

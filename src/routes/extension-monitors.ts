@@ -1,5 +1,5 @@
 import { Ajv } from "ajv";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store } from "../database.js";
 import { assertAllegroUrl, validateListings } from "../validation.js";
 
@@ -14,6 +14,24 @@ const monitorSchema = {
     url: {},
   },
 };
+
+const resultsSchema = {
+  type: "object",
+  required: ["listings"],
+  additionalProperties: true,
+  // Individual offers remain permissive; validateListings owns their validation and normalization.
+  properties: { listings: { type: "array", maxItems: 200, items: {} } },
+};
+
+// Legacy error reports accept any body and message type, including a missing body.
+const errorReportSchema = {};
+
+function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
+  if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
+    return reply.code(400).send({ error: "Nieprawidłowy JSON" });
+  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
+  return reply.send(error);
+}
 
 interface ExtensionMonitorRouteDependencies {
   store: Store;
@@ -39,12 +57,7 @@ export function registerExtensionMonitorRoutes(
       schema: { body: monitorSchema },
       validatorCompiler: ({ schema }) => validator.compile(schema),
       attachValidation: true,
-      errorHandler(error, _request, reply) {
-        if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
-          return reply.code(400).send({ error: "Nieprawidłowy JSON" });
-        if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
-        return reply.send(error);
-      },
+      errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
@@ -87,20 +100,27 @@ export function registerExtensionMonitorRoutes(
 
   app.post<{ Params: { id: string }; Body: { listings?: unknown } }>(
     "/api/extension/monitors/:id/results",
+    {
+      schema: { body: resultsSchema },
+      validatorCompiler: ({ schema }) => validator.compile(schema),
+      attachValidation: true,
+      errorHandler: jsonInputErrorHandler,
+    },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
       const id = parseMonitorId(request.params.id);
-      if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+      if (!id) return reply.code(400).send({ error: "Nieprawidłowy identyfikator monitora" });
       const monitor = store.getMonitor(id);
       if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId))
-        return reply.code(404).send("Monitor nie istnieje lub jest wyłączony");
+        return reply.code(404).send({ error: "Monitor nie istnieje lub jest wyłączony" });
       store.linkMonitorClient(id, clientId, true);
+      if (request.validationError) return reply.code(400).send({ error: "Nieprawidłowa lista ofert" });
       let listings;
       try {
         listings = validateListings(request.body?.listings);
       } catch (error) {
-        return reply.code(400).send(error instanceof Error ? error.message : "Nieprawidłowe wyniki");
+        return reply.code(400).send({ error: error instanceof Error ? error.message : "Nieprawidłowe wyniki" });
       }
       const fresh = store.saveCheck(monitor, listings, settings.telegramBotToken ? settings.telegramChatIds : []);
       return reply.send({
@@ -114,14 +134,20 @@ export function registerExtensionMonitorRoutes(
 
   app.post<{ Params: { id: string }; Body: { message?: string } }>(
     "/api/extension/monitors/:id/error",
+    {
+      schema: { body: errorReportSchema },
+      validatorCompiler: ({ schema }) => validator.compile(schema),
+      attachValidation: true,
+      errorHandler: jsonInputErrorHandler,
+    },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
       const id = parseMonitorId(request.params.id);
-      if (!id) return reply.code(400).send("Nieprawidłowy identyfikator monitora");
+      if (!id) return reply.code(400).send({ error: "Nieprawidłowy identyfikator monitora" });
       const monitor = store.getMonitor(id);
       if (!monitor || !store.hasMonitorClient(id, clientId))
-        return reply.code(404).send("Monitor nie istnieje lub nie należy do tego rozszerzenia");
+        return reply.code(404).send({ error: "Monitor nie istnieje lub nie należy do tego rozszerzenia" });
       store.saveError(monitor, new Error(String(request.body?.message || "Nieznany błąd rozszerzenia").slice(0, 1000)));
       return reply.send({ saved: true });
     },
