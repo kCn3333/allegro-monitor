@@ -3,17 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initializeDatabaseSchema } from "./database-schema.js";
-import { TelegramRepository, type TelegramJob } from "./repositories/telegram.js";
 import { MonitorsRepository } from "./repositories/monitors.js";
 import type { DeviceInfo, ExtensionClient, Listing, Monitor, MonitorExclusion } from "./types.js";
 
-export type { TelegramJob } from "./repositories/telegram.js";
+export interface TelegramJob {
+  id: number;
+  chatId: string;
+  monitorName: string;
+  listing: Listing;
+  attempts: number;
+}
 
 export class Store {
   private readonly db: DatabaseSync;
   private readonly listingRetentionChecks: number;
   private nextSessionCleanupAt?: number;
-  private readonly telegram: TelegramRepository;
+  private nextTelegramCleanupAt?: number;
   private readonly monitors: MonitorsRepository;
 
   constructor(
@@ -31,7 +36,6 @@ export class Store {
       this.db.close();
       throw error;
     }
-    this.telegram = new TelegramRepository(this.db, this.now);
     this.monitors = new MonitorsRepository(this.db, this.now, this.listingRetentionChecks);
   }
 
@@ -295,7 +299,17 @@ export class Store {
   }
 
   claimTelegramJob(now = this.now()): TelegramJob | undefined {
-    return this.telegram.claimTelegramJob(now);
+    if (this.nextTelegramCleanupAt === undefined || now >= this.nextTelegramCleanupAt) {
+      this.db.prepare("DELETE FROM telegram_jobs WHERE finished_at<?").run(now - 30 * 86400_000);
+      this.nextTelegramCleanupAt = now + 5 * 60_000;
+    }
+    // Lease also recovers work interrupted by process termination. One bounded worker per process.
+    const row = this.db
+      .prepare(`UPDATE telegram_jobs SET status='sending',attempts=attempts+1,available_at=?
+      WHERE id=(SELECT id FROM telegram_jobs WHERE status IN ('pending','sending') AND available_at<=? ORDER BY id LIMIT 1)
+      RETURNING id,chat_id chatId,payload,attempts`)
+      .get(now + 60_000, now) as { id: number; chatId: string; payload: string; attempts: number } | undefined;
+    return row ? { ...row, ...JSON.parse(row.payload) } : undefined;
   }
 
   finishTelegramJob(
@@ -303,7 +317,19 @@ export class Store {
     error?: { permanent: boolean; retryAfterMs: number; message: string },
     now = this.now(),
   ): void {
-    this.telegram.finishTelegramJob(job, error, now);
+    const terminal = !error || error.permanent || job.attempts >= 12;
+    this.db
+      .prepare(
+        "UPDATE telegram_jobs SET status=?,available_at=?,finished_at=?,last_error=? WHERE id=? AND attempts=? AND status='sending'",
+      )
+      .run(
+        !error ? "sent" : terminal ? "failed" : "pending",
+        now + Math.max(error?.retryAfterMs || 0, Math.min(3600_000, 1000 * 2 ** job.attempts)),
+        terminal ? now : null,
+        error?.message || null,
+        job.id,
+        job.attempts,
+      );
   }
 
   recentListings(
