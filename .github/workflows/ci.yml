@@ -33,9 +33,20 @@ jobs:
       - name: Run browser and loaded MV3 extension lifecycle tests
         run: npm run test:browser
       - run: npm run build
+  minimum-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - name: Check startup, watch restart and SQLite migrations on minimum Node
+        run: node --experimental-sqlite --import tsx --test test/runtime-smoke.test.ts test/database-schema.test.ts
   image:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, minimum-node]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -32,7 +32,7 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.16.0"
   },
   "overrides": {
     "c8": {

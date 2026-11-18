@@ -1,6 +1,6 @@
 # Praca nad kodem
 
-Wymagania: Node.js 22 (co najmniej 22.5) i program `zip`.
+Wymagania: Node.js 22 (co najmniej **22.16.0**) i program `zip`.
 
 ```sh
 npm ci
@@ -8,6 +8,8 @@ cp .env.example .env
 ```
 
 Uzupełnij `.env`, następnie uruchom `npm run dev`. Panel domyślnie działa pod `http://localhost:3000`; rozszerzenie wymaga `APP_PUBLIC_URL` z HTTPS. Lokalnie `HOST` i `PORT` sterują nasłuchem, a `DATABASE_PATH` domyślnie wskazuje `./data/monitor.sqlite`.
+
+Minimum wynika z używanego w migracjach [`DatabaseSync.isTransaction`](https://nodejs.org/download/release/v22.16.0/docs/api/sqlite.html#databaseistransaction), dostępnego od 22.16.0. Pozostałe używane API SQLite (`DatabaseSync`, `exec`, `prepare`, `close`, `isOpen`, `get/all/run`), `loadEnvFile`, `fetch`, `AbortSignal.timeout` i wymagania zależności w lockfile nie podnoszą tej granicy. Zalecana jest aktualna poprawka linii 22.
 
 ## Kontrole
 
@@ -25,6 +27,8 @@ npm run build
 - `npm test` uruchamia testy bez pomiaru. `test:coverage` uruchamia ten sam zestaw i mierzy wszystkie pliki backendu `src/**/*.ts`, także niezaładowane. Wyjątek: `src/types.ts` zawiera wyłącznie deklaracje typów. Pomiar nie obejmuje rozszerzenia ani skryptów przeglądarkowych.
 - Raporty: `coverage/index.html` i `coverage/lcov.info`; w CI artefakt `backend-coverage-<SHA>`, także po błędzie testów, jeśli raport powstał. Bez wymaganego progu pokrycia.
 - Override ograniczony do `c8 → test-exclude` dobiera poprawiony `minimatch` 11 i zgodny `glob` 14; usuwa podatność narzędzi pokrycia bez zmiany zależności produkcyjnych.
+
+Osobna kontrola CI na Node **22.16.0** sprawdza czyste `npm ci`, start i zatrzymanie aplikacji, `/health`, restart watchera po zmianie pliku oraz istniejące testy migracji, rollbacku i ponownego otwarcia bazy. Używa tymczasowych plików i bazy, wolnego portu oraz wyłączonego Telegrama, bez prawdziwego `.env`. Pełny zestaw, w tym Chromium, pozostaje w dotychczasowym zadaniu CI na Node 22.
 
 ## Integracja rozszerzenia MV3
 
