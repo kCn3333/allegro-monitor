@@ -2,6 +2,10 @@
 
 Wersje dotyczą rozszerzenia; osobne wpisy opisują backend. Daty oznaczają dodanie zmian do repozytorium, nie wdrożenie.
 
+## 1.2.2 — 2026-11-18
+
+- Wyszukiwanie kart do sprawdzania i raportowania obecności ograniczone do HTTPS w domenie Allegro i jej subdomenach, bez zmiany parowania i uprawnień.
+
 ## 1.2.1 — 2026-11-16
 
 - Czytelne błędy parowania z backendu tekstowego i JSON, bez utraty istniejącego stanu. Aktualizacja nie wymaga ponownego parowania.

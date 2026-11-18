@@ -19,12 +19,29 @@ function deferred() {
   });
   return { promise, resolve };
 }
+function matchesUrlPattern(value: string, pattern: string) {
+  try {
+    const tabUrl = new URL(value);
+    const match = new URL(pattern);
+    const host = match.hostname;
+    const hostMatches = host.startsWith("*.")
+      ? tabUrl.hostname === host.slice(2) || tabUrl.hostname.endsWith(host.slice(1))
+      : tabUrl.hostname === host;
+    const path = (match.pathname + match.search).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+    return (
+      tabUrl.protocol === match.protocol && hostMatches && new RegExp(`^${path}$`).test(tabUrl.pathname + tabUrl.search)
+    );
+  } catch {
+    return false;
+  }
+}
 function harness(initial: any = {}) {
   let saved: any = { token: "test", watched: [{ ...watch }], unread: [], receivedThrough: 0, ...initial };
   let listener: any;
   const updated = new Set<any>();
   const h: any = {
-    tabs: [{ id: 1, url }],
+    tabs: [{ id: 1, url, active: true, windowId: 1 }],
+    tabQueries: [],
     posts: [],
     bodyReads: [],
     notices: [],
@@ -73,9 +90,16 @@ function harness(initial: any = {}) {
     },
     notifications: { create: async (...args: any[]) => h.notices.push(args) },
     tabs: {
-      query: async () => {
+      query: async (filter: { url?: string | string[]; active?: boolean; currentWindow?: boolean }) => {
         h.effects.push("tabs.query");
-        return structuredClone(h.tabs);
+        const patterns = filter.url ? [filter.url].flat() : [];
+        const tabs = h.tabs.filter((tab: any) => {
+          if (filter.active !== undefined && tab.active !== filter.active) return false;
+          if (filter.currentWindow && tab.windowId !== 1) return false;
+          return !patterns.length || patterns.some((pattern) => matchesUrlPattern(tab.url, pattern));
+        });
+        h.tabQueries.push({ filter: structuredClone(filter), ids: tabs.map((tab: any) => tab.id) });
+        return structuredClone(tabs);
       },
       get: async (id: number) => {
         h.effects.push("tabs.get");
@@ -384,6 +408,106 @@ test("tab identity includes price, category, pagination and domain; recovers cha
   assert.equal(h.run("isAllegroResultsPage('https://www.allegro.pl/listing')"), true);
 });
 
+const allegroTabPatterns = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8")).host_permissions;
+
+for (const host of ["allegro.pl", "www.allegro.pl", "lokalnie.allegro.pl", "nested.shop.allegro.pl"]) {
+  test(`tab discovery and presence include HTTPS ${host} across windows`, async () => {
+    const searchUrl = url.replace("allegro.pl", host);
+    const monitored = { ...watch, url: searchUrl };
+    const h = harness({ watched: [monitored] });
+    h.tabs = [
+      { id: 5, url: "https://elsewhere.example/", active: true, windowId: 1 },
+      { id: 9, url: searchUrl, active: false, windowId: 2 },
+    ];
+    h.request = async () => ({ monitors: [{ id: 1, ...monitored }], notifications: [] });
+    assert.equal((await h.run(`findTab(${JSON.stringify(monitored)})`)).id, 9);
+    await h.run("reportPresence()");
+    assert.deepEqual(h.posts[0].body.monitors, [{ id: 1, open: true }]);
+    assert.equal(h.state().watched[0].tabId, 9);
+    assert.equal(h.state().watched[0].tabOpen, true);
+    assert.deepEqual(h.tabQueries, Array(2).fill({ filter: { url: allegroTabPatterns }, ids: [9] }));
+  });
+}
+
+test("discovery excludes foreign hosts, misleading suffixes and HTTP before matching or presence", async () => {
+  const excluded = [
+    "https://example.com",
+    "https://monitor.example",
+    "https://fakeallegro.pl",
+    "https://allegro.pl.evil.example",
+    "https://www.allegro.pl.evil.example",
+    "https://allegro.pl.evil",
+    "http://allegro.pl",
+    "http://www.allegro.pl",
+  ];
+  const watched = excluded.map((origin, index) => ({
+    ...watch,
+    monitorId: index + 1,
+    tabId: index + 1,
+    url: `${origin}/listing?string=mishima&price_to=50`,
+  }));
+  const h = harness({ watched });
+  h.tabs = watched.map((item) => ({ id: item.tabId, url: item.url }));
+  h.request = async () => ({ monitors: watched.map((item) => ({ id: item.monitorId, ...item })), notifications: [] });
+  for (const item of watched) assert.equal(await h.run(`findTab(${JSON.stringify(item)})`), null);
+  await h.run("reportPresence()");
+  assert.deepEqual(
+    h.posts[0].body.monitors,
+    watched.map((item) => ({ id: item.monitorId, open: false })),
+  );
+  assert.ok(h.state().watched.every((item: any) => item.tabId === null && item.tabOpen === false));
+  assert.deepEqual(h.tabQueries, Array(watched.length + 1).fill({ filter: { url: allegroTabPatterns }, ids: [] }));
+});
+
+test("discovery preserves exact filters, pagination, category and host, prefers saved ID and recovers a new ID", async () => {
+  const h = harness();
+  h.tabs = [
+    { id: 2, url: url + "&p=2" },
+    { id: 3, url: url.replace("price_to=50", "price_to=100") },
+    { id: 4, url: url.replace("/listing", "/kategoria/ksiazki") },
+    { id: 5, url: url.replace("allegro.pl", "www.allegro.pl") },
+    { id: 6, url: "https://foreign.example/listing?string=mishima&price_to=50" },
+    { id: 9, url: "https://allegro.pl/listing?price_to=50&string=mishima#results" },
+    { id: 1, url },
+  ];
+  h.request = async () => ({ monitors: [{ id: 1, ...watch }], notifications: [] });
+  assert.equal((await h.run(`findTab(${JSON.stringify(watch)})`)).id, 1, "saved ID wins over an earlier matching tab");
+  await h.run("reportPresence()");
+  assert.equal(h.state().watched[0].tabId, 1);
+  h.tabs = h.tabs.filter((tab: any) => tab.id !== 1);
+  assert.equal((await h.run(`findTab(${JSON.stringify(watch)})`)).id, 9);
+  await h.run("reportPresence()");
+  assert.equal(h.state().watched[0].tabId, 9);
+  await h.run("(async () => checkOne((await state()).watched[0]))()");
+  assert.deepEqual(h.reloads, [9]);
+  assert.ok(h.posts.some((post: any) => post.path.endsWith("/results")));
+  h.tabs = h.tabs.filter((tab: any) => tab.id !== 9);
+  assert.equal(await h.run(`findTab(${JSON.stringify(watch)})`), null);
+  await h.run("reportPresence()");
+  assert.deepEqual(h.posts.at(-1).body.monitors, [{ id: 1, open: false }]);
+  assert.equal(h.state().watched[0].tabId, null);
+  for (const query of h.tabQueries) {
+    assert.deepEqual(query.filter, { url: allegroTabPatterns });
+    assert.ok(!query.ids.includes(6), "foreign tabs never reach matching");
+  }
+});
+
+test("adding a monitor still queries only the active tab in the current window", async () => {
+  const h = harness();
+  h.tabs = [
+    { id: 2, url, active: false, windowId: 1 },
+    { id: 3, url, active: true, windowId: 2 },
+    { id: 4, url: "https://foreign.example/", active: true, windowId: 1 },
+  ];
+  await assert.rejects(h.run("addCurrentTab('New', 5)"), /Otwórz kartę/);
+  assert.deepEqual(h.posts, []);
+  h.tabs[2].url = url;
+  h.request = async () => ({ id: 2, name: "New" });
+  await h.run("addCurrentTab('New', 5)");
+  assert.equal(h.state().watched.find((item: any) => item.monitorId === 2).tabId, 4);
+  assert.deepEqual(h.tabQueries, Array(2).fill({ filter: { active: true, currentWindow: true }, ids: [4] }));
+});
+
 test("navigation during extraction never submits results", async () => {
   const h = harness();
   h.read = async () => {
@@ -516,7 +640,7 @@ test("adding a monitor during an outstanding sync is serialized without losing t
   };
   const sync = h.run("reportPresence()");
   await started.promise;
-  h.tabs = [{ id: 2, url: url + "&p=2" }];
+  h.tabs = [{ id: 2, url: url + "&p=2", active: true, windowId: 1 }];
   const add = h.run("addCurrentTab('new', 5)");
   await Promise.resolve();
   assert.equal(h.posts.length, 1);

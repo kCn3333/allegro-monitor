@@ -1,6 +1,7 @@
 import { BACKEND_URL } from "./backend-config.js";
 
 const ALARM = "allegro-monitor-tick";
+const ALLEGRO_TAB_URLS = ["https://allegro.pl/*", "https://*.allegro.pl/*"];
 let checking = false;
 let presenceTimer = null;
 let writes = Promise.resolve();
@@ -252,7 +253,7 @@ async function addCurrentTab(name, intervalMinutes) {
 }
 
 async function findTab(watch) {
-  const tabs = await chrome.tabs.query({});
+  const tabs = await chrome.tabs.query({ url: ALLEGRO_TAB_URLS });
   return findMatchingTab(tabs, watch);
 }
 
@@ -291,7 +292,7 @@ async function deviceInfo() {
 async function performPresence() {
   const data = await state();
   if (!data.token) throw new Error("Rozszerzenie nie jest sparowane");
-  const tabs = await chrome.tabs.query({});
+  const tabs = await chrome.tabs.query({ url: ALLEGRO_TAB_URLS });
   const monitors = data.watched.map((watch) => {
     const tab = findMatchingTab(tabs, watch);
     watch.tabId = tab?.id || null;
