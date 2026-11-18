@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initializeDatabaseSchema } from "./database-schema.js";
-import { SessionsRepository } from "./repositories/sessions.js";
 import { ClientsRepository } from "./repositories/clients.js";
 import { NotificationsRepository } from "./repositories/notifications.js";
 import { TelegramRepository, type TelegramJob } from "./repositories/telegram.js";
@@ -14,7 +13,7 @@ export type { TelegramJob } from "./repositories/telegram.js";
 export class Store {
   private readonly db: DatabaseSync;
   private readonly listingRetentionChecks: number;
-  private readonly sessions: SessionsRepository;
+  private nextSessionCleanupAt?: number;
   private readonly clients: ClientsRepository;
   private readonly notifications: NotificationsRepository;
   private readonly telegram: TelegramRepository;
@@ -35,7 +34,6 @@ export class Store {
       this.db.close();
       throw error;
     }
-    this.sessions = new SessionsRepository(this.db, this.now);
     this.clients = new ClientsRepository(this.db, this.now);
     this.notifications = new NotificationsRepository(this.db, this.now, (monitorId, clientId) =>
       this.clients.areNotificationsEnabledForClient(monitorId, clientId),
@@ -125,15 +123,40 @@ export class Store {
   }
 
   createWebSession(tokenHash: string, credentialFingerprint: string, durationSeconds: number): void {
-    this.sessions.createWebSession(tokenHash, credentialFingerprint, durationSeconds);
+    const now = new Date(this.now());
+    this.db
+      .prepare(`INSERT INTO web_sessions
+      (token_hash,credential_fingerprint,duration_seconds,expires_at,last_used_at,created_at) VALUES(?,?,?,?,?,?)`)
+      .run(
+        tokenHash,
+        credentialFingerprint,
+        durationSeconds,
+        new Date(now.getTime() + durationSeconds * 1000).toISOString(),
+        now.toISOString(),
+        now.toISOString(),
+      );
   }
 
   touchWebSession(tokenHash: string, credentialFingerprint: string): number | null {
-    return this.sessions.touchWebSession(tokenHash, credentialFingerprint);
+    const time = this.now();
+    const now = new Date(time);
+    if (this.nextSessionCleanupAt === undefined || time >= this.nextSessionCleanupAt) {
+      this.db.prepare("DELETE FROM web_sessions WHERE expires_at<=?").run(now.toISOString());
+      this.nextSessionCleanupAt = time + 5 * 60_000;
+    }
+    const session = this.db
+      .prepare(`SELECT id,duration_seconds durationSeconds FROM web_sessions
+      WHERE token_hash=? AND credential_fingerprint=? AND expires_at>?`)
+      .get(tokenHash, credentialFingerprint, now.toISOString()) as { id: number; durationSeconds: number } | undefined;
+    if (!session) return null;
+    this.db
+      .prepare("UPDATE web_sessions SET expires_at=?,last_used_at=? WHERE id=?")
+      .run(new Date(now.getTime() + session.durationSeconds * 1000).toISOString(), now.toISOString(), session.id);
+    return session.durationSeconds;
   }
 
   deleteWebSession(tokenHash: string): void {
-    this.sessions.deleteWebSession(tokenHash);
+    this.db.prepare("DELETE FROM web_sessions WHERE token_hash=?").run(tokenHash);
   }
 
   linkMonitorClient(monitorId: number, clientId: number, tabOpen = true): void {
