@@ -1,14 +1,6 @@
-import { Ajv } from "ajv";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store } from "../database.js";
 import { assertAllegroUrl, validateListings } from "../validation.js";
-
-const notificationStateSchema = {
-  type: "object",
-  required: ["enabled"],
-  additionalProperties: true,
-  properties: { enabled: { type: "boolean" } },
-};
 
 function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
   if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
@@ -29,7 +21,6 @@ export function registerExtensionMonitorRoutes(
   app: FastifyInstance,
   { store, extensionClientId, parseMonitorId, allowedIntervals, settings }: ExtensionMonitorRouteDependencies,
 ): void {
-  const validator = new Ajv({ coerceTypes: false, removeAdditional: false, useDefaults: false, allErrors: false });
   app.post<{ Body: { name?: unknown; url?: string; intervalMinutes?: number } }>(
     "/api/extension/monitors",
     {
@@ -125,16 +116,14 @@ export function registerExtensionMonitorRoutes(
   app.post<{ Params: { id: string }; Body: { enabled: boolean } }>(
     "/api/extension/monitors/:id/notification-state",
     {
-      schema: { body: notificationStateSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
       const id = parseMonitorId(request.params.id);
-      if (!id || request.validationError) return reply.code(400).send({ error: "Nieprawidłowy stan monitora" });
+      if (!id || typeof request.body?.enabled !== "boolean")
+        return reply.code(400).send({ error: "Nieprawidłowy stan monitora" });
       if (!store.getMonitor(id)) return reply.code(404).send({ error: "Monitor nie istnieje" });
       store.setNotificationsForClient(id, clientId, request.body.enabled);
       return reply.send({ enabled: request.body.enabled });
