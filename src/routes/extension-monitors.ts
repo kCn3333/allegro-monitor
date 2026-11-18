@@ -3,23 +3,12 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import type { Store } from "../database.js";
 import { assertAllegroUrl, validateListings } from "../validation.js";
 
-const resultsSchema = {
-  type: "object",
-  required: ["listings"],
-  additionalProperties: true,
-  // Individual offers remain permissive; validateListings owns their validation and normalization.
-  properties: { listings: { type: "array", maxItems: 200, items: {} } },
-};
-
 const notificationStateSchema = {
   type: "object",
   required: ["enabled"],
   additionalProperties: true,
   properties: { enabled: { type: "boolean" } },
 };
-
-// Legacy error reports accept any body and message type, including a missing body.
-const errorReportSchema = {};
 
 function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
   if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
@@ -88,9 +77,6 @@ export function registerExtensionMonitorRoutes(
   app.post<{ Params: { id: string }; Body: { listings?: unknown } }>(
     "/api/extension/monitors/:id/results",
     {
-      schema: { body: resultsSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
@@ -102,7 +88,6 @@ export function registerExtensionMonitorRoutes(
       if (!monitor || !monitor.enabled || !store.hasMonitorClient(id, clientId))
         return reply.code(404).send({ error: "Monitor nie istnieje lub jest wyłączony" });
       store.linkMonitorClient(id, clientId, true);
-      if (request.validationError) return reply.code(400).send({ error: "Nieprawidłowa lista ofert" });
       let listings;
       try {
         listings = validateListings(request.body?.listings);
@@ -122,9 +107,6 @@ export function registerExtensionMonitorRoutes(
   app.post<{ Params: { id: string }; Body: { message?: string } }>(
     "/api/extension/monitors/:id/error",
     {
-      schema: { body: errorReportSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
