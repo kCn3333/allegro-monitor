@@ -3,6 +3,10 @@ on:
   pull_request:
   push:
     branches: [main]
+    paths-ignore:
+      - README.md
+      - CHANGELOG.md
+      - docs/**/*.md
 permissions:
   contents: read
 jobs:
