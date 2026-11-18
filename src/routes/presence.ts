@@ -1,37 +1,17 @@
-import { Ajv } from "ajv";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store } from "../database.js";
 import type { DeviceInfo } from "../types.js";
 
-const metadataSchema = { type: ["string", "null"], maxCodeUnits: 160 };
-const presenceSchema = {
-  type: "object",
-  required: ["monitors"],
-  additionalProperties: true,
-  properties: {
-    // Entries and protocol stay permissive: the handler retains Number(id), open === true and protocol === 2.
-    monitors: { type: "array", maxItems: 100, items: {} },
-    notificationProtocol: {},
-    device: {
-      type: "object",
-      additionalProperties: true,
-      properties: {
-        extensionVersion: metadataSchema,
-        browser: metadataSchema,
-        os: metadataSchema,
-        osVersion: metadataSchema,
-        arch: metadataSchema,
-      },
-    },
-  },
-};
-
-const acknowledgementSchema = {
-  type: "object",
-  required: ["batchId"],
-  additionalProperties: true,
-  properties: { batchId: { type: "string", maxCodeUnits: 100 } },
-};
+function deviceInfo(device: unknown): DeviceInfo | null {
+  if (!device || typeof device !== "object" || Array.isArray(device)) return null;
+  const info = {} as DeviceInfo;
+  for (const key of ["extensionVersion", "browser", "os", "osVersion", "arch"] as const) {
+    const value = (device as Record<string, unknown>)[key];
+    if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 160)) return null;
+    info[key] = typeof value === "string" ? value.trim() || null : null;
+  }
+  return info;
+}
 
 function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
   if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
@@ -50,43 +30,23 @@ export function registerPresenceRoutes(
   app: FastifyInstance,
   { store, extensionClientId, latestExtensionVersion }: PresenceRouteDependencies,
 ): void {
-  const validator = new Ajv({ coerceTypes: false, removeAdditional: false, useDefaults: false, allErrors: false });
-  // JSON Schema maxLength counts code points; the existing API counts UTF-16 code units.
-  validator.addKeyword({
-    keyword: "maxCodeUnits",
-    type: "string",
-    schemaType: "number",
-    validate: (limit: number, value: string) => value.length <= limit,
-    errors: false,
-  });
   app.post<{
     Body: { monitors?: Array<{ id?: number; open?: boolean }>; notificationProtocol?: number; device?: unknown };
   }>(
     "/api/extension/presence",
     {
-      schema: { body: presenceSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
-      // Authenticate before reporting schema errors, as with the original manual validation.
-      if (request.validationError) {
-        const deviceError = request.validationError.validation?.[0]?.instancePath?.startsWith("/device");
-        return reply
-          .code(400)
-          .send({ error: deviceError ? "Nieprawidłowe dane urządzenia" : "Nieprawidłowa lista obecności" });
-      }
-      const monitors = request.body.monitors!;
+      const monitors = request.body?.monitors;
+      if (!Array.isArray(monitors) || monitors.length > 100)
+        return reply.code(400).send({ error: "Nieprawidłowa lista obecności" });
       const device = request.body?.device;
       if (device !== undefined) {
-        const info = {} as DeviceInfo;
-        for (const key of ["extensionVersion", "browser", "os", "osVersion", "arch"] as const) {
-          const value = (device as Record<string, unknown>)[key];
-          info[key] = typeof value === "string" ? value.trim() || null : null;
-        }
+        const info = deviceInfo(device);
+        if (!info) return reply.code(400).send({ error: "Nieprawidłowe dane urządzenia" });
         store.updateExtensionClientInfo(clientId, info);
       }
       let updated = 0;
@@ -129,16 +89,14 @@ export function registerPresenceRoutes(
   app.post<{ Body: { batchId: string } }>(
     "/api/extension/notifications/ack",
     {
-      schema: { body: acknowledgementSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
-      if (request.validationError) return reply.code(400).send({ error: "Nieprawidłowy ACK" });
-      const batchId = request.body.batchId;
+      const batchId = request.body?.batchId;
+      if (typeof batchId !== "string" || batchId.length > 100)
+        return reply.code(400).send({ error: "Nieprawidłowy ACK" });
       // Repeated/unknown ACK is a safe no-op; it cannot advance any cursor.
       return { acknowledged: store.acknowledgeNotifications(clientId, batchId) };
     },
