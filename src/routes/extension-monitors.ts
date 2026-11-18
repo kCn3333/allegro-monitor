@@ -3,18 +3,6 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import type { Store } from "../database.js";
 import { assertAllegroUrl, validateListings } from "../validation.js";
 
-const monitorSchema = {
-  type: "object",
-  required: ["name"],
-  additionalProperties: true,
-  properties: {
-    name: { type: "string", format: "monitor-name" },
-    // Keep Number(intervalMinutes) and assertAllegroUrl conversions in the handler.
-    intervalMinutes: {},
-    url: {},
-  },
-};
-
 const resultsSchema = {
   type: "object",
   required: ["listings"],
@@ -53,24 +41,16 @@ export function registerExtensionMonitorRoutes(
   { store, extensionClientId, parseMonitorId, allowedIntervals, settings }: ExtensionMonitorRouteDependencies,
 ): void {
   const validator = new Ajv({ coerceTypes: false, removeAdditional: false, useDefaults: false, allErrors: false });
-  validator.addFormat("monitor-name", (value: string) => {
-    // Validate the trimmed UTF-16 length without modifying the request payload.
-    const length = value.trim().length;
-    return length > 0 && length <= 100;
-  });
   app.post<{ Body: { name?: unknown; url?: string; intervalMinutes?: number } }>(
     "/api/extension/monitors",
     {
-      schema: { body: monitorSchema },
-      validatorCompiler: ({ schema }) => validator.compile(schema),
-      attachValidation: true,
       errorHandler: jsonInputErrorHandler,
     },
     async (request, reply) => {
       const clientId = extensionClientId(request, reply);
       if (!clientId) return;
       const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
-      if (request.validationError) return reply.code(400).send({ error: "Nieprawidłowe dane monitora" });
+      if (!name || name.length > 100) return reply.code(400).send({ error: "Nieprawidłowe dane monitora" });
       const interval = Number(request.body?.intervalMinutes);
       if (!allowedIntervals.has(interval)) return reply.code(400).send({ error: "Nieprawidłowe dane monitora" });
       let url: URL;
