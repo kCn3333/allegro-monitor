@@ -78,26 +78,19 @@ test("check APIs preserve Bearer, ID and ownership error precedence over invalid
         ? "Monitor nie istnieje lub jest wyłączony"
         : "Monitor nie istnieje lub nie należy do tego rozszerzenia";
     for (const payload of [null, [], { listings: null }, { listings: Array(201).fill(null) }]) {
-      for (const monitor of ["invalid", "99999", String(id)]) {
-        const response = await post(action, payload, monitor, "wrong");
-        assert.equal(response.statusCode, 401);
-        assert.deepEqual(response.json(), { error: "Nieprawidłowy token rozszerzenia" });
-        assert.deepEqual(state(), before);
-      }
-      for (const monitor of ["0", "-1", "1.5", "invalid", "9007199254740992"]) {
-        const response = await post(action, payload, monitor);
-        assert.equal(response.statusCode, 400);
-        assert.deepEqual(response.json(), { error: "Nieprawidłowy identyfikator monitora" });
-        assert.deepEqual(state(), before);
-      }
-      for (const [monitor, token] of [
-        ["99999", "a"],
-        [String(id), "b"],
-      ]) {
-        const response = await post(action, payload, monitor, token);
-        assert.equal(response.statusCode, 404);
-        assert.deepEqual(response.json(), { error: missing });
-        assert.deepEqual(state(), before);
+      for (const [monitors, token, status, error] of [
+        [["invalid", "99999", String(id)], "wrong", 401, "Nieprawidłowy token rozszerzenia"],
+        [["0", "-1", "1.5", "invalid", "9007199254740992"], "a", 400, "Nieprawidłowy identyfikator monitora"],
+        [["99999"], "a", 404, missing],
+        [[String(id)], "b", 404, missing],
+      ] as const) {
+        for (const monitor of monitors) {
+          const context = `${action}, id=${monitor}, token=${token}, payload=${JSON.stringify(payload)}`;
+          const response = await post(action, payload, monitor, token);
+          assert.equal(response.statusCode, status, context);
+          assert.deepEqual(response.json(), { error }, context);
+          assert.deepEqual(state(), before, context);
+        }
       }
     }
   }
