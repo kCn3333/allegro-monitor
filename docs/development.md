@@ -26,6 +26,18 @@ npm run build
 - Raporty: `coverage/index.html` i `coverage/lcov.info`; w CI artefakt `backend-coverage-<SHA>`, także po błędzie testów, jeśli raport powstał. Bez wymaganego progu pokrycia.
 - Override ograniczony do `c8 → test-exclude` dobiera poprawiony `minimatch` 11 i zgodny `glob` 14; usuwa podatność narzędzi pokrycia bez zmiany zależności produkcyjnych.
 
+## Integracja rozszerzenia MV3
+
+`test:browser` obejmuje też rzeczywiście załadowaną paczkę z `/extension/download`: popup, worker, storage, parowanie, wiele kart, odczyt i podświetlanie ofert oraz restart na tym samym profilu. Test używa `launchPersistentContext` z kanałem `chromium`, tymczasowego profilu i lokalnego backendu. Strony Allegro są syntetyczne; routing i lokalne proxy blokują ruch zewnętrzny. Test nie zastępuje API Chrome ani logiki workera. Sprzątanie zamyka własny kontekst, backend i proxy oraz usuwa profil i bazę, także po błędzie.
+
+Obecny manifest jest blokująco sprawdzany w CI. Ten sam scenariusz można uruchomić diagnostycznie na rozpakowanej kopii paczki bez `tabs`:
+
+```sh
+ALLEGRO_EXTENSION_WITHOUT_TABS=1 node --experimental-sqlite --import tsx --test test/browser/extension-lifecycle.browser.ts
+```
+
+Polecenie zwraca błąd przy niepowodzeniu; wynik diagnostyki nie zastępuje kontroli obecnego wariantu. Manifest źródłowy, wersja i zależności pozostają bez zmian. Popup jest otwierany jako strona `chrome-extension://…/popup.html`, zgodnie z [metodą Playwright](https://playwright.dev/docs/chrome-extensions); test nie automatyzuje przycisku rozszerzenia na pasku narzędzi ani prawdziwej witryny Allegro.
+
 ## Publikacja obrazu
 
 [CI](../.github/workflows/ci.yml) sprawdza kod, testy i podatności zależności produkcyjnych. Dla `main` buduje obraz runtime i skanuje go Trivy. HIGH/CRITICAL z dostępną poprawką oraz błędy skanera lub pobrania bazy blokują publikację. Pełny raport wszystkich poziomów, także podatności bez poprawki, trafia do artefaktu `trivy-report-<SHA>`.

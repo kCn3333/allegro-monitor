@@ -30,7 +30,10 @@ jobs:
             !coverage/tmp/**
           if-no-files-found: error
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      - name: Run browser and loaded MV3 extension lifecycle tests
+        run: npm run test:browser
+        env:
+          ALLEGRO_EXTENSION_WITHOUT_TABS: "0"
       - run: npm run build
   image:
     if: github.event_name == 'push'
