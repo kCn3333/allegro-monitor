@@ -1,10 +1,10 @@
 # Backup, odtwarzanie i aktualizacja
 
-Polecenia wykonuj na silniku Docker zarządzanym przez Portainera. Korzystają z nazw wolumenów, bez znajomości ich ścieżek na hoście.
+Polecenia wykonuj na silniku Docker zarządzanym przez Portainera.
 
 ## Backup
 
-Poza repozytorium zachowaj konfigurację stosu, zmienne i sekrety oraz SHA commita (`IMAGE_TAG`) i digest obrazu. Kopie przechowuj z ograniczonym dostępem, również poza hostem aplikacji. Sam tag `latest` nie identyfikuje wersji.
+Konfigurację stosu i sekrety zabezpiecz osobno, poza repozytorium. Zapisz SHA commita (`IMAGE_TAG`) i digest obrazu; `latest` nie identyfikuje wersji. Kopie przechowuj z ograniczonym dostępem, również poza hostem aplikacji.
 
 1. Ustaw nazwę kontenera z Portainera i przygotuj katalog kopii:
 
@@ -27,7 +27,7 @@ Poza repozytorium zachowaj konfigurację stosu, zmienne i sekrety oraz SHA commi
    test -z "$(docker ps -q --filter volume="$DATA_VOLUME")"
    ```
 
-   Kontynuuj tylko po potwierdzeniu, że żaden proces nie zapisuje bazy, także spoza kontenerów. Do końca kopiowania nie uruchamiaj ani nie aktualizuj stosu.
+   Potwierdź brak zapisów także spoza kontenerów. Do końca kopiowania nie uruchamiaj ani nie aktualizuj stosu.
 
 3. Skopiuj **cały wolumen**, zachowując uprawnienia i UID/GID:
 
@@ -39,13 +39,13 @@ Poza repozytorium zachowaj konfigurację stosu, zmienne i sekrety oraz SHA commi
    (cd "$BACKUP_DIR" && sha256sum allegro-monitor-data.tar > allegro-monitor-data.tar.sha256)
    ```
 
-   SQLite używa WAL: nie kopiuj samego aktywnego `monitor.sqlite` ani nie pomijaj pozostałych plików `-wal` i `-shm`.
+   Kopia musi obejmować także pliki SQLite `-wal` i `-shm`, jeśli istnieją.
 
-4. Uruchom `docker start "$APP_CONTAINER"` i sprawdź healthcheck oraz panel. Przywróć pracę aplikacji także po błędzie kopii; niepełne archiwum nie jest backupem.
+4. Uruchom `docker start "$APP_CONTAINER"` i sprawdź healthcheck oraz panel, także po błędzie kopii. Niepełne archiwum nie jest backupem.
 
 ## Odtworzenie testowe
 
-Użyj obrazu odpowiadającego kopii. Na innym hoście pobierz go po zapisanym SHA lub digeście i ustaw `APP_IMAGE`. Nigdy nie odtwarzaj kopii na działający wolumen.
+Użyj obrazu odpowiadającego kopii. Na innym hoście pobierz go po zapisanym SHA lub digeście i ustaw `APP_IMAGE`. Odtwarzaj wyłącznie do nowego wolumenu.
 
 Sprawdź sumę archiwum; kontynuuj tylko po wyniku poprawnym:
 
@@ -86,7 +86,7 @@ if (integrity.length !== 1 || integrity[0].integrity_check !== "ok" || foreignKe
 '
 ```
 
-Oczekiwane: `integrity_check = ok`, brak naruszeń `foreign_key_check`. Po poprawnym wyniku załaduj zachowane dane logowania i sekret do środowiska powłoki z chronionego źródła. Uruchom próbę **bez Telegrama, publicznego tunelu i portów hosta**:
+Po poprawnym wyniku załaduj zachowane dane logowania i sekret do środowiska powłoki z chronionego źródła. Uruchom próbę **bez Telegrama, tunelu i publicznych portów**:
 
 ```sh
 docker run -d --name allegro-monitor-restore-test --network none \
@@ -105,22 +105,14 @@ docker exec allegro-monitor-restore-test node -e \
   "fetch('http://127.0.0.1:3000/health').then(async r=>{console.log(r.status,await r.text());if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 ```
 
-Porównaj dane z kopią: monitory, oferty, wykluczenia, urządzenia i powiązania, sesje, partie ACK oraz kolejkę Telegrama z payloadami, próbami i terminami. Sprawdź niewygasłą sesję, token urządzenia i ponowne pobranie partii przed ACK. Pusty token Telegrama pozostawia kolejkę bez wysyłki.
+Porównaj z kopią monitory, oferty, wykluczenia, urządzenia i powiązania, sesje, partie ACK oraz zadania Telegrama (payloady, próby i terminy). Sprawdź niewygasłą sesję, token urządzenia i ponowienie partii przed ACK. Pusty token Telegrama wyłącza wysyłkę.
 
-Po próbie usuń kontener: `docker rm -f allegro-monitor-restore-test`. Wolumen testowy zachowaj do decyzji o odtworzeniu lub usuń po sprawdzeniu jego nazwy.
+Po próbie wykonaj `docker rm -f allegro-monitor-restore-test`. Wolumen zachowaj do odtworzenia lub usuń po sprawdzeniu jego nazwy.
 
 ## Aktualizacja i rollback w Portainerze
 
 1. Wykonaj backup. Przetestuj nowy obraz na osobnej kopii wolumenu, bez Telegrama i sieci publicznej.
-2. Po udanej publikacji w CI ustaw `IMAGE_TAG` na wybrany pełny SHA lub `latest`. Prywatny obraz wymaga dostępu Portainera do `ghcr.io` z prawem odczytu pakietu.
+2. Po udanej publikacji w CI ustaw `IMAGE_TAG` na wybrany pełny SHA. Portainer musi mieć prawo odczytu prywatnego pakietu w `ghcr.io`.
 3. Zaktualizuj stos z ponownym pobraniem obrazu, zachowując konfigurację i wolumen. Sprawdź healthcheck, panel i logi.
 
-Rollback wymaga zgodnego **obrazu i kopii bazy**. Po migracji nie uruchamiaj starszego obrazu na zmienionej bazie bez potwierdzenia zgodności. Odtwórz kopię sprzed aktualizacji do nowego wolumenu, przetestuj ją z właściwym obrazem, zatrzymaj aplikację i zmień obraz oraz wolumen w stosie. Zachowaj poprzedni wolumen do potwierdzenia wyniku. Dane wrócą do chwili backupu; wznowienie Telegrama może powtórzyć wiadomości wysłane później.
-
-Schemat SQLite jest wersjonowany przez `PRAGMA user_version`. Wersja `0` oznacza brak numerowania, także w historycznych bazach. Migracja `0→1` zachowuje dotychczasowe reguły; każdy krok jest atomowy. Błąd wycofuje zmiany, umożliwiając ponowienie startu. Zakończone migracje nie są powtarzane, a przyszła wersja blokuje start. Nie zmieniaj numeru ręcznie.
-
-## Zakres sprawdzonej procedury
-
-Próba z 2026-11-14: rootless Podman 6.1.3, Linux amd64, SQLite 3.54.1, obraz z commita `84faf3e0814c8b8d1f13f4e89bc375d0bb1adb1b`. Wyłącznie sztuczne dane i osobne wolumeny, bez sieci i Telegrama; bez testowania interfejsu Portainera ani silnika Docker.
-
-Odtworzono identyczne pliki, uprawnienia i dane wszystkich 9 tabel. Integralność i klucze obce poprawne; działały sesja, tokeny, ponawianie partii i ACK. Kolejka Telegrama pozostała niezmieniona, zadania oczekujące i po wygasłej dzierżawie były dostępne. Healthcheck przeszedł. Produkcja nie była objęta próbą.
+Rollback wymaga zgodnego **obrazu i kopii bazy**. Po migracji nie uruchamiaj starszego obrazu na zmienionej bazie bez potwierdzenia zgodności. Odtwórz kopię sprzed aktualizacji do nowego wolumenu, przetestuj ją z właściwym obrazem, zatrzymaj aplikację i zmień obraz oraz wolumen w stosie. Zachowaj poprzedni wolumen do potwierdzenia wyniku. Dane wrócą do chwili backupu; Telegram może ponownie wysłać późniejsze wiadomości.

@@ -1,19 +1,20 @@
 # Praca nad kodem
 
-Wymagania: Node.js 22 (co najmniej **22.16.0**) i program `zip`.
+Wymagania: Node.js 22, minimum **22.16.0** ze względu na `DatabaseSync.isTransaction`, oraz program `zip`. Używaj aktualnej poprawki linii 22.
+
+Uzupełnij `.env` przed uruchomieniem aplikacji:
 
 ```sh
 npm ci
 cp .env.example .env
+npm run dev
 ```
 
-Uzupełnij `.env`, następnie uruchom `npm run dev`. Panel domyślnie działa pod `http://localhost:3000`; rozszerzenie wymaga `APP_PUBLIC_URL` z HTTPS. Lokalnie `HOST` i `PORT` sterują nasłuchem, a `DATABASE_PATH` domyślnie wskazuje `./data/monitor.sqlite`.
+Panel domyślnie działa pod `http://localhost:3000`; paczka rozszerzenia wymaga `APP_PUBLIC_URL` z HTTPS. Nasłuch ustawiają `HOST` i `PORT`, a baza domyślnie trafia do `./data/monitor.sqlite`.
 
-Minimum wynika z używanego w migracjach [`DatabaseSync.isTransaction`](https://nodejs.org/download/release/v22.16.0/docs/api/sqlite.html#databaseistransaction), dostępnego od 22.16.0. Pozostałe używane API SQLite (`DatabaseSync`, `exec`, `prepare`, `close`, `isOpen`, `get/all/run`), `loadEnvFile`, `fetch`, `AbortSignal.timeout` i wymagania zależności w lockfile nie podnoszą tej granicy. Zalecana jest aktualna poprawka linii 22.
+`npm run build` czyści wygenerowany `dist` i kompiluje wyłącznie backend. `npm start` uruchamia `dist/src/main.js`. Docker zachowuje assety panelu i generuje ZIP z runtime `APP_PUBLIC_URL`; runtime nie zawiera npm/npx.
 
-`npm run build` czyści wyłącznie wygenerowany `dist` i kompiluje `src/**/*.ts` przez `tsconfig.build.json`, dziedzicząc ustawienia rygoru z `tsconfig.json`. Wynik nadal trafia do `dist/src`, a `npm start` i Docker uruchamiają `dist/src/main.js` z dotychczasowego katalogu roboczego. Testy nie trafiają do obrazu; publiczne assety i pliki rozszerzenia są kopiowane osobno. `npm run check` nadal sprawdza backend i wszystkie testy, również przeglądarkowe.
-
-## Kontrole
+## Kontrole i testy
 
 ```sh
 npm run format:check
@@ -23,25 +24,27 @@ npm run test:coverage
 npx playwright install chromium
 npm run test:browser
 npm run build
+npm audit --include=dev --audit-level=low
 ```
 
-- `npm run format` formatuje `src/**/*.ts`, `test/**/*.ts`, `public/**/*.js` i `extension/**/*.js`. Styl: 2 spacje, podwójne cudzysłowy, średniki; bez organizowania importów.
-- `npm test` uruchamia testy bez pomiaru. `test:coverage` uruchamia ten sam zestaw i mierzy wszystkie pliki backendu `src/**/*.ts`, także niezaładowane. Wyjątek: `src/types.ts` zawiera wyłącznie deklaracje typów. Pomiar nie obejmuje rozszerzenia ani skryptów przeglądarkowych.
-- Raporty: `coverage/index.html` i `coverage/lcov.info`; w CI artefakt `backend-coverage-<SHA>`, także po błędzie testów, jeśli raport powstał. Bez wymaganego progu pokrycia.
-- Override ograniczony do `c8 → test-exclude` dobiera poprawiony `minimatch` 11 i zgodny `glob` 14; usuwa podatność narzędzi pokrycia bez zmiany zależności produkcyjnych.
+`npm run format` formatuje kod. `check` sprawdza backend i wszystkie testy, w tym przeglądarkowe. `npm test` uruchamia zestaw backendu bez pomiaru pokrycia.
 
-Osobna kontrola CI na Node **22.16.0** sprawdza czyste `npm ci`, start i zatrzymanie aplikacji, `/health`, restart watchera po zmianie pliku oraz istniejące testy migracji, rollbacku i ponownego otwarcia bazy. Używa tymczasowych plików i bazy, wolnego portu oraz wyłączonego Telegrama, bez prawdziwego `.env`. Pełny zestaw, w tym Chromium, pozostaje w dotychczasowym zadaniu CI na Node 22.
+`test:coverage` mierzy wszystkie `src/**/*.ts`, także niezaładowane, poza deklaracjami w `src/types.ts`. Nie obejmuje rozszerzenia ani skryptów przeglądarkowych; brak wymaganego progu. Raporty: `coverage/index.html`, `coverage/lcov.info` i artefakt CI `backend-coverage-<SHA>`, również po błędzie, jeśli powstał raport.
 
-## Integracja rozszerzenia MV3
+CI sprawdza też minimum Node **22.16.0**: czyste `npm ci`, start, `/health`, restart po zmianie pliku, zamknięcie oraz migracje, rollback i ponowne otwarcie bazy. Próby używają tymczasowych plików, bazy i wolnego portu, bez prawdziwego `.env` i Telegrama.
 
-`test:browser` obejmuje też rzeczywiście załadowaną paczkę z `/extension/download`: popup, worker, storage, parowanie, wiele kart, odczyt i podświetlanie ofert oraz restart na tym samym profilu. Test używa `launchPersistentContext` z kanałem `chromium`, tymczasowego profilu w trybie deweloperskim i lokalnego backendu. Strony Allegro są syntetyczne; routing i lokalne proxy blokują ruch zewnętrzny. Test nie zastępuje API Chrome ani logiki workera. Sprzątanie zamyka własny kontekst, backend i proxy oraz usuwa profil i bazę, także po błędzie.
+### Rozszerzenie MV3
 
-Produkcyjna paczka bez `tabs` jest blokująco sprawdzana w CI. Test potwierdza brak uprawnienia w załadowanym manifeście i przez `chrome.permissions.contains`, a także zachowanie tokenu i monitorów po nadpisaniu plików w tym samym katalogu, przeładowaniu przez `chrome.runtime.reload` oraz ponownym uruchomieniu na tym samym profilu.
+`test:browser` sprawdza produkcyjną paczkę z `/extension/download` w rzeczywistym Chromium przez `launchPersistentContext`, z lokalnym backendem i osobnym profilem. Obejmuje parowanie i dodanie aktywnej karty, synchronizację wielu kart, filtrów, paginacji i subdomen, odczyt ofert, odświeżenie i podświetlenie nowych pozycji, zamknięcie i odzyskanie karty oraz zachowanie tokenu i monitorów po przeładowaniu plików i restarcie profilu.
 
-Test obejmuje Chromium i syntetyczne strony. Popup jest otwierany jako strona `chrome-extension://…/popup.html`, zgodnie z [metodą Playwright](https://playwright.dev/docs/chrome-extensions); test nie automatyzuje przycisku rozszerzenia na pasku narzędzi ani prawdziwej witryny Allegro.
+Worker, storage i API Chrome działają bez mocków. Test potwierdza brak `tabs` w załadowanym manifeście i przez `chrome.permissions.contains`. Własne procesy, profil i baza są sprzątane także po błędzie; ruch zewnętrzny jest blokowany.
 
-## Publikacja obrazu
+Ograniczenia: Chromium i syntetyczne strony Allegro. Popup jest otwierany jako strona `chrome-extension://…/popup.html`, bez automatyzacji przycisku na pasku narzędzi i bez kontaktu z prawdziwym Allegro.
 
-[CI](../.github/workflows/ci.yml) sprawdza kod, testy i podatności zależności produkcyjnych. Dla `main` buduje obraz runtime i skanuje go Trivy. HIGH/CRITICAL z dostępną poprawką oraz błędy skanera lub pobrania bazy blokują publikację. Pełny raport wszystkich poziomów, także podatności bez poprawki, trafia do artefaktu `trivy-report-<SHA>`.
+## CI i publikacja
 
-Po poprawnym skanie ten sam obraz jest publikowany w GHCR jako `latest` i pełny SHA commita. CI nie wdraża aplikacji.
+[CI](../.github/workflows/ci.yml) sprawdza kod, testy i pełny audyt zależności produkcyjnych oraz deweloperskich. Pull requesty przechodzą pełne kontrole. Push na `main` pomija CI tylko wtedy, gdy wszystkie zmiany dotyczą `README.md`, `CHANGELOG.md` lub `docs/**/*.md`; dodanie innej zmiany uruchamia pełny przebieg.
+
+Po kontrolach push na `main` buduje obraz i skanuje go Trivy. HIGH/CRITICAL z poprawką oraz błędy skanera lub pobrania bazy blokują publikację. Pełny raport wszystkich poziomów trafia do `trivy-report-<SHA>`, także po odrzuceniu obrazu.
+
+Ten sam obraz, bez ponownego builda, jest publikowany w GHCR jako `latest` i pełny SHA commita. Aktualizacja przez Portainera i rollback są ręczne — patrz [procedura operacyjna](operations.md). CI nie wdraża aplikacji.
