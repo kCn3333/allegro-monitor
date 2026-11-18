@@ -41,6 +41,10 @@ test("downloaded archives contain only selected assets and use deployment-specif
     fs.writeFileSync(archive, await buildExtensionPackage(origin, source));
     const read = (name: string) => execFileSync("unzip", ["-p", archive, name], { encoding: "utf8" });
     const manifest = JSON.parse(read("manifest.json"));
+    const sourceManifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
+    assert.equal(manifest.version, sourceManifest.version);
+    assert.deepEqual(manifest.permissions, ["alarms", "storage", "scripting", "notifications"]);
+    execFileSync("unzip", ["-tq", archive]);
     assert.deepEqual(manifest.host_permissions, [
       "https://allegro.pl/*",
       "https://*.allegro.pl/*",

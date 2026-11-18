@@ -11,7 +11,6 @@ import { buildApp } from "../../src/server.js";
 import { config } from "../../src/config.js";
 import { Store } from "../../src/database.js";
 
-const withoutTabs = process.env.ALLEGRO_EXTENSION_WITHOUT_TABS === "1";
 const backendOrigin = "https://backend.test";
 const searchUrl = "https://allegro.pl/listing?price_to=50&string=books";
 interface Watched {
@@ -50,9 +49,8 @@ async function sync(popup: Page) {
   await popupMessage(popup, "Lista odświeżona");
 }
 
-// The exact same lifecycle can be run diagnostically against a disposable manifest without tabs.
-// The default, production-permissions variant is mandatory in test:browser and CI.
-test(`loaded MV3 lifecycle (${withoutTabs ? "diagnostic without tabs" : "production permissions"})`, {
+// Always load the production package; this lifecycle is mandatory in test:browser and CI.
+test("loaded MV3 lifecycle (production package without tabs)", {
   timeout: 120_000,
 }, async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-loaded-extension-"));
@@ -86,6 +84,12 @@ test(`loaded MV3 lifecycle (${withoutTabs ? "diagnostic without tabs" : "product
       }
     }
   });
+  // Unpacked extensions need Developer mode for runtime.reload, just like a manual installation.
+  fs.mkdirSync(path.join(profile, "Default"), { recursive: true });
+  fs.writeFileSync(
+    path.join(profile, "Default", "Preferences"),
+    JSON.stringify({ extensions: { ui: { developer_mode: true } } }),
+  );
   await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
   const proxyPort = (proxy.address() as import("node:net").AddressInfo).port;
   const settings = {
@@ -121,10 +125,7 @@ test(`loaded MV3 lifecycle (${withoutTabs ? "diagnostic without tabs" : "product
     fs.readFileSync(path.join(unpacked, "backend-config.js"), "utf8"),
     `export const BACKEND_URL = "${backendOrigin}";\n`,
   );
-  if (withoutTabs) {
-    manifest.permissions = manifest.permissions.filter((permission: string) => permission !== "tabs");
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
-  }
+  assert.equal(manifest.permissions.includes("tabs"), false);
   const calls: Array<{ path: string; worker: boolean }> = [];
   const visits = new Map<string, number>();
   const blocked: string[] = [];
@@ -192,12 +193,19 @@ test(`loaded MV3 lifecycle (${withoutTabs ? "diagnostic without tabs" : "product
       .finally(releaseBackend);
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${id}/popup.html`);
-    const permissions = await popup.evaluate(() => (globalThis as any).chrome.runtime.getManifest().permissions);
-    assert.equal(permissions.includes("tabs"), !withoutTabs);
+    const loadedManifest = await popup.evaluate(() => (globalThis as any).chrome.runtime.getManifest());
+    assert.equal(loadedManifest.version, manifest.version);
+    assert.deepEqual(loadedManifest.permissions, manifest.permissions);
+    assert.deepEqual(loadedManifest.host_permissions, manifest.host_permissions);
+    assert.equal(loadedManifest.permissions.includes("tabs"), false);
+    const tabsGranted = await popup.evaluate(() =>
+      (globalThis as any).chrome.permissions.contains({ permissions: ["tabs"] }),
+    );
+    assert.equal(tabsGranted, false, "tabs must not be granted by Chromium");
     return { popup, id, persisted };
   }
   let { popup, id: extensionId } = await launch();
-  t.diagnostic(`Chromium ${context!.browser()!.version()}; tabs permission: ${!withoutTabs}`);
+  t.diagnostic(`Chromium ${context!.browser()!.version()}; tabs permission: false (manifest and permissions.contains)`);
   const pages: Page[] = [];
   let token = "";
   let monitored: Watched[] = [];
@@ -331,30 +339,64 @@ test(`loaded MV3 lifecycle (${withoutTabs ? "diagnostic without tabs" : "product
     assert.equal(store!.listMonitors().find((monitor) => monitor.id === rootId)!.activeClientsCount, 1);
   });
 
-  await t.test("restart Chromium with the same isolated profile retains token and monitors", async () => {
-    const before = await state(popup);
-    await context!.close();
-    context = undefined;
-    const restarted = await launch();
-    popup = restarted.popup;
-    assert.equal(restarted.id, extensionId);
-    assert.equal(restarted.persisted.token, token);
-    assert.deepEqual(
-      restarted.persisted.watched.map(({ monitorId, url }) => ({ monitorId, url })),
-      before.watched.map(({ monitorId, url }) => ({ monitorId, url })),
-      "monitors must be persisted before any startup response from the backend",
-    );
-    await popup.locator("#connected").waitFor();
-    await sync(popup);
-    const after = await state(popup);
-    assert.equal(after.token, token);
-    assert.deepEqual(
-      after.watched.map(({ monitorId, url }) => ({ monitorId, url })),
-      before.watched.map(({ monitorId, url }) => ({ monitorId, url })),
-    );
-    assert.equal(store!.listExtensionClients().length, 1, "restart must not pair a new client");
-    assert.equal(calls.filter((call) => call.path === "/api/extension/pair").length, 1);
-    assert.deepEqual(blocked, [], "unexpected browser requests are blocked, never sent to the internet");
-    assert.equal(fs.readFileSync("extension/manifest.json", "utf8"), originalManifest);
-  });
+  await t.test(
+    "overwrite package, reload extension and restart on the same profile retains token and monitors",
+    async () => {
+      const before = await state(popup);
+      // Update files in place, preserving the extension path/ID and the browser profile.
+      execFileSync("unzip", ["-oq", archive, "-d", unpacked]);
+      await popup.evaluate(() => {
+        setTimeout(() => (globalThis as any).chrome.runtime.reload(), 0);
+      });
+      // Reloading stops the worker; opening the packaged popup wakes the new MV3 worker.
+      const reloadedPopup = await context!.newPage();
+      const reloadDeadline = Date.now() + 10_000;
+      while (true) {
+        try {
+          await reloadedPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+          break;
+        } catch (error) {
+          // Chromium temporarily blocks extension URLs while runtime.reload replaces its registration.
+          if (
+            !(error instanceof Error) ||
+            !error.message.includes("ERR_BLOCKED_BY_CLIENT") ||
+            Date.now() >= reloadDeadline
+          )
+            throw error;
+          await delay(50);
+        }
+      }
+      await reloadedPopup.locator("#connected").waitFor();
+      const reloaded = await state(reloadedPopup);
+      assert.equal(reloaded.token, token, "reloading after overwriting files preserves pairing");
+      assert.deepEqual(
+        reloaded.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+        before.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+        "reloading after overwriting files preserves monitors",
+      );
+      await context!.close();
+      context = undefined;
+      const restarted = await launch();
+      popup = restarted.popup;
+      assert.equal(restarted.id, extensionId);
+      assert.equal(restarted.persisted.token, token);
+      assert.deepEqual(
+        restarted.persisted.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+        before.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+        "monitors must be persisted before any startup response from the backend",
+      );
+      await popup.locator("#connected").waitFor();
+      await sync(popup);
+      const after = await state(popup);
+      assert.equal(after.token, token);
+      assert.deepEqual(
+        after.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+        before.watched.map(({ monitorId, url }) => ({ monitorId, url })),
+      );
+      assert.equal(store!.listExtensionClients().length, 1, "restart must not pair a new client");
+      assert.equal(calls.filter((call) => call.path === "/api/extension/pair").length, 1);
+      assert.deepEqual(blocked, [], "unexpected browser requests are blocked, never sent to the internet");
+      assert.equal(fs.readFileSync("extension/manifest.json", "utf8"), originalManifest);
+    },
+  );
 });

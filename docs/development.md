@@ -28,15 +28,11 @@ npm run build
 
 ## Integracja rozszerzenia MV3
 
-`test:browser` obejmuje też rzeczywiście załadowaną paczkę z `/extension/download`: popup, worker, storage, parowanie, wiele kart, odczyt i podświetlanie ofert oraz restart na tym samym profilu. Test używa `launchPersistentContext` z kanałem `chromium`, tymczasowego profilu i lokalnego backendu. Strony Allegro są syntetyczne; routing i lokalne proxy blokują ruch zewnętrzny. Test nie zastępuje API Chrome ani logiki workera. Sprzątanie zamyka własny kontekst, backend i proxy oraz usuwa profil i bazę, także po błędzie.
+`test:browser` obejmuje też rzeczywiście załadowaną paczkę z `/extension/download`: popup, worker, storage, parowanie, wiele kart, odczyt i podświetlanie ofert oraz restart na tym samym profilu. Test używa `launchPersistentContext` z kanałem `chromium`, tymczasowego profilu w trybie deweloperskim i lokalnego backendu. Strony Allegro są syntetyczne; routing i lokalne proxy blokują ruch zewnętrzny. Test nie zastępuje API Chrome ani logiki workera. Sprzątanie zamyka własny kontekst, backend i proxy oraz usuwa profil i bazę, także po błędzie.
 
-Obecny manifest jest blokująco sprawdzany w CI. Ten sam scenariusz można uruchomić diagnostycznie na rozpakowanej kopii paczki bez `tabs`:
+Produkcyjna paczka bez `tabs` jest blokująco sprawdzana w CI. Test potwierdza brak uprawnienia w załadowanym manifeście i przez `chrome.permissions.contains`, a także zachowanie tokenu i monitorów po nadpisaniu plików w tym samym katalogu, przeładowaniu przez `chrome.runtime.reload` oraz ponownym uruchomieniu na tym samym profilu.
 
-```sh
-ALLEGRO_EXTENSION_WITHOUT_TABS=1 node --experimental-sqlite --import tsx --test test/browser/extension-lifecycle.browser.ts
-```
-
-Polecenie zwraca błąd przy niepowodzeniu; wynik diagnostyki nie zastępuje kontroli obecnego wariantu. Manifest źródłowy, wersja i zależności pozostają bez zmian. Popup jest otwierany jako strona `chrome-extension://…/popup.html`, zgodnie z [metodą Playwright](https://playwright.dev/docs/chrome-extensions); test nie automatyzuje przycisku rozszerzenia na pasku narzędzi ani prawdziwej witryny Allegro.
+Test obejmuje Chromium i syntetyczne strony. Popup jest otwierany jako strona `chrome-extension://…/popup.html`, zgodnie z [metodą Playwright](https://playwright.dev/docs/chrome-extensions); test nie automatyzuje przycisku rozszerzenia na pasku narzędzi ani prawdziwej witryny Allegro.
 
 ## Publikacja obrazu
 
