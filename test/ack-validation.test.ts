@@ -1,21 +1,10 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { DatabaseSync } from "node:sqlite";
-import { Store } from "../src/database.js";
-import { config } from "../src/config.js";
-import { buildApp } from "../src/server.js";
 import { tokenHash } from "../src/security.js";
+import { presenceAckResources } from "./helpers/presence-ack-resources.js";
 
 async function fixture(t: TestContext) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "allegro-ack-validation-"));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const databasePath = path.join(directory, "test.sqlite");
-  const now = () => 1800000000000;
-  const store = new Store(databasePath, undefined, now);
-  t.after(() => store.close());
+  const { store, startApp } = presenceAckResources(t, "allegro-ack-validation-");
   const monitor = store.createMonitor("Books", "https://allegro.pl/listing?string=books", 5);
   const a = store.addExtensionClient("A", tokenHash("a"));
   const b = store.addExtensionClient("B", tokenHash("b"));
@@ -35,12 +24,7 @@ async function fixture(t: TestContext) {
   const batchB = store.notificationBatch(b);
   assert.equal(batchA.events.length, 1);
   assert.equal(batchB.events.length, 1);
-  const app = await buildApp({
-    config: { ...config, databasePath, publicUrl: "", username: "", password: "", telegramBotToken: "" },
-    startWorker: false,
-    now,
-  });
-  t.after(() => app.close());
+  const { app, db } = await startApp();
   const ack = (payload: unknown, token = "a") =>
     app.inject({
       method: "POST",
@@ -48,8 +32,6 @@ async function fixture(t: TestContext) {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       payload: JSON.stringify(payload),
     });
-  const db = new DatabaseSync(databasePath);
-  t.after(() => db.close());
   const snapshot = () => ({
     clients: db
       .prepare("SELECT * FROM extension_clients ORDER BY id")
