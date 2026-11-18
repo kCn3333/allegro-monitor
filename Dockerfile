@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY extension ./extension
 RUN npm run build

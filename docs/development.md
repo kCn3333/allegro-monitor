@@ -11,6 +11,8 @@ Uzupełnij `.env`, następnie uruchom `npm run dev`. Panel domyślnie działa po
 
 Minimum wynika z używanego w migracjach [`DatabaseSync.isTransaction`](https://nodejs.org/download/release/v22.16.0/docs/api/sqlite.html#databaseistransaction), dostępnego od 22.16.0. Pozostałe używane API SQLite (`DatabaseSync`, `exec`, `prepare`, `close`, `isOpen`, `get/all/run`), `loadEnvFile`, `fetch`, `AbortSignal.timeout` i wymagania zależności w lockfile nie podnoszą tej granicy. Zalecana jest aktualna poprawka linii 22.
 
+`npm run build` czyści wyłącznie wygenerowany `dist` i kompiluje `src/**/*.ts` przez `tsconfig.build.json`, dziedzicząc ustawienia rygoru z `tsconfig.json`. Wynik nadal trafia do `dist/src`, a `npm start` i Docker uruchamiają `dist/src/main.js` z dotychczasowego katalogu roboczego. Testy nie trafiają do obrazu; publiczne assety i pliki rozszerzenia są kopiowane osobno. `npm run check` nadal sprawdza backend i wszystkie testy, również przeglądarkowe.
+
 ## Kontrole
 
 ```sh

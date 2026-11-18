@@ -64,7 +64,7 @@ async function fixture(t: TestContext) {
     }
   });
   // Copy only tracked application inputs, never a real .env or database.
-  for (const name of ["package.json", "tsconfig.json", "src", "public", "extension"])
+  for (const name of ["package.json", "tsconfig.json", "tsconfig.build.json", "src", "public", "extension"])
     fs.cpSync(name, path.join(directory, name), { recursive: true });
   fs.symlinkSync(path.resolve("node_modules"), path.join(directory, "node_modules"), "dir");
   const reservation = net.createServer();
@@ -137,9 +137,33 @@ test("npm run dev starts, serves health, restarts after a watched edit and shuts
   assert.equal(await app.healthy(), false);
 });
 
-test("npm run build and npm start serve health and shut down", { timeout: 75_000 }, async (t) => {
+test("clean build and rebuild emit only backend modules; npm start serves health and shuts down", {
+  timeout: 75_000,
+}, async (t) => {
   const app = await fixture(t);
+  const expected = fs
+    .readdirSync(path.join(app.directory, "src"), { recursive: true })
+    .map(String)
+    .filter((file) => file.endsWith(".ts"))
+    .map((file) => path.join("src", file.replace(/\.ts$/, ".js")))
+    .sort();
+  const output = () =>
+    fs
+      .readdirSync(path.join(app.directory, "dist"), { recursive: true })
+      .map(String)
+      .filter((file) => file.endsWith(".js"))
+      .sort();
   await app.build();
+  assert.deepEqual(output(), expected, "clean build emits every backend module and no tests");
+  fs.mkdirSync(path.join(app.directory, "dist/test/browser"), { recursive: true });
+  fs.writeFileSync(path.join(app.directory, "dist/test/browser/stale.js"), "stale test artifact");
+  fs.writeFileSync(path.join(app.directory, "dist/src/stale.js"), "stale backend artifact");
+  const kept = path.join(app.directory, "keep.txt");
+  fs.writeFileSync(kept, "outside dist");
+  await app.build();
+  assert.deepEqual(output(), expected, "rebuild removes obsolete test and backend artifacts");
+  assert.equal(fs.existsSync(path.join(app.directory, "dist/test")), false);
+  assert.equal(fs.readFileSync(kept, "utf8"), "outside dist", "cleanup is confined to dist");
   await app.start("start");
   await app.stop();
   assert.equal(await app.healthy(), false);
