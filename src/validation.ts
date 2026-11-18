@@ -1,3 +1,4 @@
+import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
 import type { Listing } from "./types.js";
 
 export function validateImageUrl(value: unknown): string | null {
@@ -55,4 +56,11 @@ export function validateListings(input: unknown): Listing[] {
       imageUrl: validateImageUrl(value.imageUrl),
     };
   });
+}
+
+export function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
+  if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
+    return reply.code(400).send({ error: "Nieprawidłowy JSON" });
+  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
+  return reply.send(error);
 }

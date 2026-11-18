@@ -1,6 +1,7 @@
-import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store } from "../database.js";
 import type { DeviceInfo } from "../types.js";
+import { jsonInputErrorHandler } from "../validation.js";
 
 function deviceInfo(device: unknown): DeviceInfo | null {
   if (!device || typeof device !== "object" || Array.isArray(device)) return null;
@@ -11,13 +12,6 @@ function deviceInfo(device: unknown): DeviceInfo | null {
     info[key] = typeof value === "string" ? value.trim() || null : null;
   }
   return info;
-}
-
-function jsonInputErrorHandler(error: FastifyError, _request: FastifyRequest, reply: FastifyReply) {
-  if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY")
-    return reply.code(400).send({ error: "Nieprawidłowy JSON" });
-  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") return reply.code(413).send({ error: "Zbyt duże żądanie" });
-  return reply.send(error);
 }
 
 interface PresenceRouteDependencies {
